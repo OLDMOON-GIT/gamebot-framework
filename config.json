@@ -1,0 +1,18 @@
+{
+  "debug_port": 9333,
+  "page_url": "purpleon.plaync.com/webplay/linclassic",
+  "loop_interval": [0.4, 0.8],
+  "hp_potion_key": "F1",
+  "hp_potion_threshold": 0.55,
+  "hp_emergency_key": "F2",
+  "hp_emergency_threshold": 0.30,
+  "potion_cooldown": 1.2,
+  "mob_click_offset_y": 28,
+  "combat_timeout_sec": 8,
+  "wander_after_idle_sec": 10,
+  "loot_key": "F4",
+  "loot_after_kill": true,
+  "screenshot_quality": 70,
+  "hud": { "hp_rect": null, "mp_rect": null },
+  "debug_dir": "debug"
+}
