@@ -14,7 +14,7 @@ import time
 
 import cv2
 
-from cdp import CDPClient, Input, find_page_ws, press, screenshot_b64
+from cdp import Input, find_page_session, press, screenshot_b64
 from vision import HUD, decode_jpeg, find_mobs
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -35,8 +35,8 @@ def jitter(a, b):
 class Bot:
     def __init__(self, probe=False, url=None):
         self.probe = probe
-        ws = find_page_ws(CFG["debug_port"], url or CFG["page_url"])
-        self.cdp = CDPClient(ws)
+        self.url = url or CFG["page_url"]
+        self.cdp = find_page_session(CFG["debug_port"], self.url)
         self.cdp.call("Page.enable")
         self.inp = Input(self.cdp)
         self.hud = HUD(CFG)
@@ -148,14 +148,32 @@ class Bot:
 
         log.info(f"HP={ratios['hp']:.0%} MP={ratios['mp']:.0%} 몹={len(mobs)}")
 
-    def run(self, once=False):
+    def reconnect(self):
+        """CDP 연결 재설정 (타임아웃 등으로 연결이 깨졌을 때)."""
+        try:
+            self.cdp.close()
+        except Exception:
+            pass
+        self.cdp = find_page_session(CFG["debug_port"], self.url)
+        self.cdp.call("Page.enable")
+        self.inp = Input(self.cdp)
+        log.info("CDP 재연결 완료")
+
+    def run(self, once=False, max_steps=0):
         log.info(f"봇 시작 (probe={self.probe})")
+        n = 0
         while True:
             try:
                 self.step()
             except Exception as e:
-                log.error(f"스텝 오류: {e}")
-            if once:
+                log.error(f"스텝 오류: {e} → 재연결")
+                try:
+                    self.reconnect()
+                except Exception as e2:
+                    log.error(f"재연결 실패: {e2}")
+                    time.sleep(3)
+            n += 1
+            if once or (max_steps and n >= max_steps):
                 break
             time.sleep(jitter(*CFG["loop_interval"]))
 
@@ -164,9 +182,12 @@ def main():
     probe = "--probe" in sys.argv
     shot = "--shot" in sys.argv
     url = None
+    steps = 0
     for a in sys.argv[1:]:
         if a.startswith("--url="):
             url = a.split("=", 1)[1]
+        elif a.startswith("--steps="):
+            steps = int(a.split("=", 1)[1])
     bot = Bot(probe=probe or shot, url=url)
     if shot:
         raw = screenshot_b64(bot.cdp, 90)
@@ -178,7 +199,7 @@ def main():
         bot.debug_shot(img, mobs, ratios)
         print(f"저장: {p}  HP={ratios['hp']:.2f} MP={ratios['mp']:.2f} 몹={len(mobs)}")
         return
-    bot.run()
+    bot.run(max_steps=steps)
 
 
 if __name__ == "__main__":

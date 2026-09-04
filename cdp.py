@@ -1,4 +1,4 @@
-"""Minimal Chrome DevTools Protocol client (no external deps beyond websocket-client)."""
+"""Minimal Chrome DevTools Protocol client (flatten 세션, 브라우저 WS 경유)."""
 import base64
 import json
 import threading
@@ -8,10 +8,11 @@ import websocket
 
 
 class CDPClient:
-    def __init__(self, ws_url: str, timeout: float = 30.0):
+    def __init__(self, ws_url: str, timeout: float = 30.0, session_id: str | None = None):
         self.ws = websocket.create_connection(ws_url, timeout=timeout,
                                               suppress_origin=True,
                                               max_size=100 * 1024 * 1024)
+        self.session_id = session_id
         self._id = 0
         self._lock = threading.Lock()
 
@@ -19,14 +20,16 @@ class CDPClient:
         with self._lock:
             self._id += 1
             msg_id = self._id
-            self.ws.send(json.dumps({"id": msg_id, "method": method,
-                                     "params": params or {}}))
+            msg = {"id": msg_id, "method": method, "params": params or {}}
+            if self.session_id:
+                msg["sessionId"] = self.session_id
+            self.ws.send(json.dumps(msg))
             while True:
-                msg = json.loads(self.ws.recv())
-                if msg.get("id") == msg_id:
-                    if "error" in msg:
-                        raise RuntimeError(f"CDP {method}: {msg['error']}")
-                    return msg.get("result", {})
+                resp = json.loads(self.ws.recv())
+                if resp.get("id") == msg_id:
+                    if "error" in resp:
+                        raise RuntimeError(f"CDP {method}: {resp['error']}")
+                    return resp.get("result", {})
 
     def close(self):
         try:
@@ -35,20 +38,56 @@ class CDPClient:
             pass
 
 
-def find_page_ws(debug_port: int, url_substr: str) -> str:
+class PageSession:
+    """flatten attach된 페이지 세션 래퍼 (브라우저 WS 공유)."""
+
+    def __init__(self, browser: CDPClient, session_id: str):
+        self.browser = browser
+        self.session_id = session_id
+
+    def call(self, method: str, params: dict | None = None):
+        with self.browser._lock:
+            self.browser._id += 1
+            msg_id = self.browser._id
+            self.browser.ws.send(json.dumps({
+                "id": msg_id, "method": method, "params": params or {},
+                "sessionId": self.session_id}))
+            while True:
+                resp = json.loads(self.browser.ws.recv())
+                if resp.get("id") == msg_id and \
+                        resp.get("sessionId") == self.session_id:
+                    if "error" in resp:
+                        raise RuntimeError(f"CDP {method}: {resp['error']}")
+                    return resp.get("result", {})
+
+    def close(self):
+        self.browser.close()
+
+
+def find_page_session(debug_port: int, url_substr: str,
+                      timeout: float = 30.0) -> PageSession:
     tabs = requests.get(f"http://127.0.0.1:{debug_port}/json",
                         timeout=5).json()
+    target = None
     for tab in tabs:
         if tab.get("type") == "page" and url_substr in tab.get("url", ""):
-            return tab["webSocketDebuggerUrl"]
-    raise RuntimeError(f"'{url_substr}' 탭을 찾지 못함 (열린 탭: "
-                       f"{[t.get('url', '')[:60] for t in tabs if t.get('type') == 'page']})")
+            target = tab
+            break
+    if target is None:
+        raise RuntimeError(f"'{url_substr}' 탭을 찾지 못함 (열린 탭: "
+                           f"{[t.get('url', '')[:60] for t in tabs if t.get('type') == 'page']})")
+    ver = requests.get(f"http://127.0.0.1:{debug_port}/json/version",
+                       timeout=5).json()
+    browser = CDPClient(ver["webSocketDebuggerUrl"], timeout=timeout)
+    r = browser.call("Target.attachToTarget",
+                     {"targetId": target["id"], "flatten": True})
+    return PageSession(browser, r["sessionId"])
 
 
 class Input:
     """CDP trusted input injection."""
 
-    def __init__(self, cdp: CDPClient):
+    def __init__(self, cdp):
         self.cdp = cdp
 
     def click(self, x: int, y: int, button: str = "left"):
@@ -82,7 +121,7 @@ def press(inp: Input, name: str):
     inp.key(k, c, vk)
 
 
-def screenshot_b64(cdp: CDPClient, quality: int = 70) -> bytes:
+def screenshot_b64(cdp, quality: int = 70) -> bytes:
     r = cdp.call("Page.captureScreenshot",
                  {"format": "jpeg", "quality": quality})
     return base64.b64decode(r["data"])
