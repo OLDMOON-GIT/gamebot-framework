@@ -1,0 +1,19 @@
+{
+  "char_brightness": 120,
+  "char_min_area": 300,
+  "char_exclude_radius": 90,
+  "motion_threshold": 35,
+  "mob_min_area": 25,
+  "mob_max_area": 4000,
+  "scroll_threshold": 0.25,
+  "max_travel_sec": 12,
+  "wander_idle_sec": 12,
+  "hp_potion_threshold": 0.45,
+  "potion_key": 112,
+  "potion_cooldown": 3.0,
+  "dialog_brightness": 95,
+  "dialog_cancel_x": 0.46,
+  "dialog_cancel_y": 0.895,
+  "char_below_bar": 45,
+  "user_yield_sec": 30
+}
