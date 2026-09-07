@@ -12,6 +12,14 @@ import linux_vision as vision
 class VisionTests(unittest.TestCase):
     def setUp(self):
         self.frame = np.zeros((1332, 1933, 3), dtype=np.uint8)
+        # HP는 실측 게이지/숫자 폴백이 실 픽셀을 보므로 mock으로 끊고
+        # side_effect 시퀀스는 기존 텍스트 판독 순서를 유지한다.
+        gauge_patcher = patch.object(vision, "hp_from_gauge", return_value=None)
+        digits_patcher = patch.object(vision, "hp_from_hud_digits", return_value=None)
+        gauge_patcher.start()
+        digits_patcher.start()
+        self.addCleanup(gauge_patcher.stop)
+        self.addCleanup(digits_patcher.stop)
 
     def test_invalid_frame(self):
         self.assertFalse(vision.analyze(None)["ready"])

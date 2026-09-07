@@ -6,6 +6,8 @@
 import math
 import re
 import subprocess
+import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -20,6 +22,9 @@ MP_RECT = (1180, 1002, 140, 36)
 # 분리 크롭으로 읽어 비율을 구한다.
 HP_CUR_RECT = (955, 1005, 50, 32)
 HP_MAX_RECT = (1010, 1005, 60, 32)
+# HUD HP 게이지(2026-09-07 CDP 창 실측): x737~1071 트랙 334px, 우측 기준 채움.
+HP_GAUGE_RECT = (737, 1004, 334, 12)
+HP_GAUGE_TRACK = 334.0
 ZONE_RECT = (1765, 995, 165, 45)
 URL_RECT = (190, 50, 500, 50)
 PANEL_CLOSE_RECT = (1510, 200, 90, 40)
@@ -69,6 +74,23 @@ def parse_ratio(text, label):
     if maximum <= 0 or current > maximum:
         return None
     return current / maximum
+
+
+def hp_from_gauge(img):
+    """HUD HP 게이지(빨간 채움 막대) 폭으로 HP 비율을 즉시 판독한다.
+
+    트랙 334px 실측(5샘플 일관, 오차 ±1%). OCR보다 빠르고 슬래시/글자
+    오독이 원천적으로 없다. 게이지가 안 보이면 None.
+    """
+    region = crop(img, HP_GAUGE_RECT)
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+    red = cv2.inRange(hsv, (0, 150, 120), (10, 255, 255)) | \
+        cv2.inRange(hsv, (170, 150, 120), (180, 255, 255))
+    columns = np.where(red.max(axis=0) > 0)[0]
+    if len(columns) == 0:
+        return None
+    width = columns.max() - columns.min() + 1
+    return float(min(1.0, width / HP_GAUGE_TRACK))
 
 
 def hp_from_hud_digits(img):
@@ -204,6 +226,55 @@ def red_name_candidates(img):
         result.append((center_x, center_y, int(cv2.contourArea(contour)),
                        (x0 + x, y0 + y, w, h)))
     return result
+
+
+# 몹 스프라이트 템플릿: 공격 지점 크롭을 자동 적립해 matchTemplate로
+# 정지 몹까지 정확히 찾는다(차분은 움직임 없으면 놓친다).
+TEMPLATE_DIR = Path(__file__).parent / "mob_templates"
+TEMPLATE_SIZE = 56
+TEMPLATE_MATCH_THRESHOLD = 0.62
+
+
+def save_mob_template(img, x, y):
+    """몹 공격 지점 크롭을 템플릿으로 적립한다. 유사 기존분은 스킵."""
+    half = TEMPLATE_SIZE
+    template = img[max(0, y - half):y + half, max(0, x - half):x + half]
+    if template.size == 0:
+        return None
+    TEMPLATE_DIR.mkdir(exist_ok=True)
+    for existing in TEMPLATE_DIR.glob("mob-*.png"):
+        previous = cv2.imread(str(existing))
+        if previous is None or previous.shape != template.shape:
+            continue
+        score = cv2.matchTemplate(previous, template, cv2.TM_CCOEFF_NORMED)
+        if score.size and score.max() > 0.93:
+            return existing.name
+    name = f"mob-{int(time.time() * 1000) % 100000}.png"
+    cv2.imwrite(str(TEMPLATE_DIR / name), template)
+    return name
+
+
+def detect_mobs(img):
+    """적립된 몹 템플릿 매칭으로 몹 위치 목록을 반환한다.
+
+    겹침 제거: 30px 격자로 대표 좌표를 하나만 남긴다.
+    """
+    hits = {}
+    templates = list(TEMPLATE_DIR.glob("mob-*.png"))
+    if not templates:
+        return []
+    x0, y0, width, height = PLAY_RECT
+    region = img[y0:y0 + height, x0:x0 + width]
+    for path in templates:
+        template = cv2.imread(str(path))
+        if template is None or template.shape[0] >= region.shape[0]:
+            continue
+        result = cv2.matchTemplate(region, template, cv2.TM_CCOEFF_NORMED)
+        for yy, xx in zip(*np.where(result >= TEMPLATE_MATCH_THRESHOLD)):
+            center = (int(x0 + xx + template.shape[1] // 2),
+                      int(y0 + yy + template.shape[0] // 2))
+            hits[(center[0] // 30, center[1] // 30)] = center
+    return list(hits.values())
 
 
 def find_character(img):
@@ -355,10 +426,13 @@ def analyze(img, target_profiles=None, *, require_url=True):
             if "purpleon.plaync.com/webplay/linclassic" not in url.replace(" ", ""):
                 result["reason"] = "퍼플온 리니지 URL 확인 실패"
                 return result
-        result["hp"] = parse_ratio(ocr(crop(img, HP_RECT),
-                                          whitelist="HMP:0123456789/"), "HP")
+        # HP 판독 우선순위: 게이지 색상(즉시·안정) > 숫자 분리 > 텍스트.
+        result["hp"] = hp_from_gauge(img)
         if result["hp"] is None:
             result["hp"] = hp_from_hud_digits(img)
+        if result["hp"] is None:
+            result["hp"] = parse_ratio(ocr(crop(img, HP_RECT),
+                                          whitelist="HMP:0123456789/"), "HP")
         result["mp"] = parse_ratio(ocr(crop(img, MP_RECT),
                                           whitelist="HMP:0123456789/"), "MP")
         # 이동 전용 입력은 zone 판독과 무관하게 게임 화면 확인만으로 허용한다.

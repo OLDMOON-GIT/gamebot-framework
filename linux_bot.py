@@ -1,6 +1,7 @@
 """로그인된 Linux 퍼플온 창을 사용하는 사냥 제어기. 기본 실행은 관찰 모드."""
 
 import argparse
+import math
 import fcntl
 import json
 import logging
@@ -13,13 +14,14 @@ import time
 import cv2
 import numpy as np
 
-from linux_vision import (aden_drop_at, analyze, find_character, forbidden_mob_check,
-                          mob_hp_bars, motion_blobs, validate_target_profiles)
+from linux_vision import (aden_drop_at, analyze, detect_mobs, find_character,
+                          forbidden_mob_check, mob_hp_bars, motion_blobs,
+                          save_mob_template, validate_target_profiles)
 from linux_window import PurpleWindow
 
 
 POTION_THRESHOLD = 0.70  # 사용자 지정(2026-09-07): 70%에서 물약
-MAX_MOB_CANDIDATES = 60  # 이 초과 후보는 전투 이펙트/스크롤 잔상으로 본다
+MAX_MOB_CANDIDATES = 200  # 이 초과는 잔상 폭증(배회 직후 실측 1000+)
 SAFE_MOB_AREA = 3000     # 이 면적 초과 블롭은 돌골렘급 거대 몹으로 보고 공격 안 함
 RUNTIME = Path("/tmp/linc-bot-linux")
 STOP_PATH = RUNTIME / "stop"
@@ -30,7 +32,7 @@ LOCK_PATH = RUNTIME / "controller.lock"
 def write_status(**state):
     RUNTIME.mkdir(parents=True, exist_ok=True)
     staging = STATUS_PATH.with_suffix(".pending")
-    staging.write_text(json.dumps({"time": time.time(), "pid": os.getpid(), **state},
+    staging.write_text(json.dumps({"time": time.time(), "pid": os.getpid(), **state}, default=str,
                                  ensure_ascii=False), encoding="utf-8")
     staging.replace(STATUS_PATH)
 
@@ -87,6 +89,7 @@ def hunt_loop(window, stop_path, args):
     """
     kills = 0
     last_target = None
+    stale = 0  # 몹 없음 연속 횟수 — 방향 순환용
     state = {"reason": "사냥 시작", "hp": None, "mp": None, "ready": False,
              "game_visible": False, "safe_zone": False, "mobs": [], "candidates": []}
     deadline = time.monotonic() + args.seconds
@@ -134,7 +137,7 @@ def hunt_loop(window, stop_path, args):
                 # CDP 창은 HUD 텍스트 슬래시가 OCR에 잘 안 걸린다(실측).
                 # 캐릭터 머리 위 HP 막대 비율로 대체 판독한다(오차 -0.05 보정).
                 bar = find_character(frame)
-                if bar:
+                if bar and bar[2] > 0.05:  # 0.0은 다른 플레이어 막대 오탐
                     hp = max(0.0, bar[2] - 0.05)
                     state["hp"] = hp
                     state["game_visible"] = True
@@ -155,7 +158,21 @@ def hunt_loop(window, stop_path, args):
                 window.click(580, 700, geometry)
                 wait_or_stop(window, args.interval, stop_path)
                 continue
-            # 차분 몹 탐지: 안정 프레임과 1초 후 프레임 비교
+            # 몹 탐지 1순위: 템플릿 매칭(정지 몹도 즉시 포착)
+            template_mobs = detect_mobs(frame)
+            if template_mobs:
+                char = find_character(frame)
+                near = [m for m in template_mobs
+                        if not (char and math.hypot(m[0]-char[0], m[1]-char[1]) <= 90)]
+                if near:
+                    kills += 1
+                    target = near[0]
+                    last_target = target
+                    logging.info("템플릿 몹 공격 #%s: %s", kills, target)
+                    window.click(target[0], target[1], geometry, hover=0.75)
+                    time.sleep(5.5)
+                    continue
+            # 몹 탐지 2순위: 차분(움직이는 몹)
             char = find_character(frame)
             time.sleep(1.0)
             if window.stop_pressed() or stop_path.exists() or not window.active():
@@ -166,10 +183,19 @@ def hunt_loop(window, stop_path, args):
             blobs, _ = motion_blobs(later, frame, char[:2] if char else None)
             state["candidates"] = blobs
             if len(blobs) > MAX_MOB_CANDIDATES:
-                logging.info("후보 과다(%s개): 이펙트/잔상으로 보류", len(blobs))
-                state["candidates"] = []
-                wait_or_stop(window, args.interval, stop_path)
-                continue
+                # 배회 이동 직후 잔상이 폭증한다(실측 1000+). 잔상은 작은
+                # 블롭이므로 큰 덩어리(500+)만 실몹 후보로 공격하고, 없으면
+                # 제자리에서 잔상 소멸을 기다린다(이동 금지 — 잔상 재발).
+                solid = [b for b in blobs if 500 <= b[2] <= SAFE_MOB_AREA]
+                if solid:
+                    logging.info("후보 과다(%s개) 중 대형 몹 공격: %s",
+                                 len(blobs), max(solid, key=lambda b: b[2])[:2])
+                    blobs = solid
+                else:
+                    logging.info("후보 과다(%s개): 제자리 대기(잔상 소멸)", len(blobs))
+                    state["candidates"] = []
+                    time.sleep(1.2)
+                    continue
             if not blobs:
                 if last_target:
                     logging.info("전투 종료 추정: 드랍 확인 %s", last_target)
@@ -186,11 +212,16 @@ def hunt_loop(window, stop_path, args):
                             time.sleep(0.8)
                     last_target = None
                 else:
-                    logging.info("몹 없음: 배회 이동")
+                    stale += 1
+                    # 우측 고정 배회는 몹 없는 지역으로 무한 직진한다(실측).
+                    # 몹 없음이 이어지면 방향을 순환해 사냥터를 탐색한다.
+                    directions = ((160, 40), (-160, 40), (-160, -40), (160, -40))
+                    dx, dy = directions[stale % len(directions)]
                     char_now = find_character(later)
                     base = char_now[:2] if char_now else (1150, 650)
-                    window.click(max(600, min(base[0] + 160, 1290)),
-                                 max(250, min(base[1] + 40, 730)), geometry)
+                    logging.info("몹 없음(%s회): 배회 %s", stale, (dx, dy))
+                    window.click(max(600, min(base[0] + dx, 1290)),
+                                 max(250, min(base[1] + dy, 730)), geometry)
                 wait_or_stop(window, args.interval, stop_path)
                 continue
             safe_blobs = [b for b in blobs if b[2] <= SAFE_MOB_AREA]
@@ -198,16 +229,20 @@ def hunt_loop(window, stop_path, args):
                 logging.info("후보 전체가 거대 몹(면적>%s): 공격 보류", SAFE_MOB_AREA)
                 wait_or_stop(window, args.interval, stop_path)
                 continue
+            stale = 0  # 몹 발견: 배회 방향 리셋
             target = max(safe_blobs, key=lambda b: b[2])
             last_target = target[:2]
             kills += 1
             logging.info("몹 공격 #%s: (%s,%s) 면적=%s 후보=%s", kills, target[0], target[1],
                          target[2], len(blobs))
             window.click(target[0], target[1], geometry, hover=0.75)
+            saved = save_mob_template(later, target[0], target[1])
+            if saved:
+                logging.info("몹 템플릿 적립: %s", saved)
             save_frame(args.output / "hunt-last.png", later)
             # 전투 종료까지 대기: 몹 HP 막대(노란 게이지)가 사라지면 처치 완료.
             # 금지 몹(돌골렘 등)이 타겟에 걸리면 즉시 이탈한다(2026-09-07 지시).
-            combat_deadline = time.monotonic() + 14
+            combat_deadline = time.monotonic() + 8
             while time.monotonic() < combat_deadline:
                 if window.stop_pressed() or stop_path.exists() or not window.active():
                     break
