@@ -59,6 +59,7 @@ def main():
     deadline = time.monotonic() + args.seconds
     kills = 0
     prev_hp = None
+    potion_dry = 0
     log = logging.getLogger("hunt")
     log.info("미니맵 사냥 시작 (중심=%s)", CHAR_CENTER)
     try:
@@ -83,6 +84,18 @@ def main():
                 w.click(*POTION_SPOT, w.geometry())
                 log.info("물약 (HP %.2f)", hp)
                 time.sleep(1.2)
+                # 재고 소진 감지: 물약을 눌렀는데 HP가 계속 하락/제자리면
+                # 재고가 바닥난 것이다. 사망 방지 위해 즉시 사냥 중단.
+                after = w.capture()
+                hp2 = hp_from_gauge(after)
+                if hp2 is not None and hp2 <= hp + 0.01 and hp2 < 0.5:
+                    potion_dry += 1
+                else:
+                    potion_dry = 0
+                if potion_dry >= 3:
+                    log.info("물약 재고 소진 추정: 사냥 중단 (사망 방지)")
+                    status(running=False, kills=kills, hp=hp, mode="물약부족중지")
+                    return
                 continue
             # 자동전투 중(HP 하락) 개입 금지
             if prev_hp is not None and hp < prev_hp - 0.02:
