@@ -52,8 +52,13 @@ def ocr(img, *, whitelist=None, lang="eng", scale=2):
 
 
 def parse_ratio(text, label):
-    """분모/슬래시/접두어가 없거나 범위를 벗어난 OCR은 추측하지 않는다."""
-    match = re.fullmatch(r"\s*" + label + r"\s*:?\s*(\d+)\s*/\s*(\d+)\s*", text)
+    """분모/슬래시가 없거나 범위를 벗어난 OCR은 추측하지 않는다.
+
+    접두어는 첫 글자 누락/대소문자 오독('HP'→'Pp')까지 허용한다.
+    HP/MP 영역은 고정 크롭이라 다른 텍스트가 섞이지 않는다.
+    """
+    match = re.fullmatch(rf"\s*[{label[0]}]?[{label[1]}][{label[1]}]?\s*:?\s*"
+                         r"(\d+)\s*/\s*(\d+)\s*", text, flags=re.IGNORECASE)
     if not match:
         return None
     current, maximum = map(int, match.groups())

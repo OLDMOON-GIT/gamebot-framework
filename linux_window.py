@@ -30,6 +30,7 @@ class PurpleWindow:
             window_id = candidates[0]
         self.window = self.connection.create_resource_object("window", window_id)
         self.window_id = window_id
+        self.window_size_hint = (CALIBRATED_GEOMETRY[2], CALIBRATED_GEOMETRY[3])
         self.stop_keycode = self.connection.keysym_to_keycode(XK.string_to_keysym("F12"))
         self.stop_latched = False
         self.root.grab_key(self.stop_keycode, X.AnyModifier, False,
@@ -60,7 +61,11 @@ class PurpleWindow:
                  "0,%d,%d,%d,%d" % CALIBRATED_GEOMETRY],
                 check=True, timeout=5)
             self.connection.sync()
-        subprocess.run(["wmctrl", "-i", "-a", str(self.window_id)], check=True, timeout=5)
+        # 포커스를 뺏지 않는다: 최소화만 해제하고 '항상 위'로 고정한다.
+        subprocess.run(["wmctrl", "-i", "-r", str(self.window_id), "-b",
+                        "remove,hidden,shaded"], check=True, timeout=5)
+        subprocess.run(["wmctrl", "-i", "-r", str(self.window_id), "-b",
+                        "add,above"], check=True, timeout=5)
         self.connection.sync()
         return self.geometry()
 
@@ -78,10 +83,18 @@ class PurpleWindow:
         return position.x, position.y, geometry.width, geometry.height
 
     def active(self):
-        prop = self.root.get_full_property(
-            self.connection.intern_atom("_NET_ACTIVE_WINDOW"), X.AnyPropertyType)
-        return (prop is not None and int(prop.value[0]) == self.window_id
-                and self._title(self.window) == "PURPLE On - Chromium")
+        """활성 포커스 대신 창이 화면에 표시되는지만 확인한다.
+
+        포커스 강제(wmctrl -a)가 사용자 작업을 방해하므로(2026-09-07 요청)
+        창은 '항상 위'로 유지하고 포커스와 무관하게 동작시킨다.
+        """
+        try:
+            geometry = self.window.get_geometry()
+            attrs = self.window.get_attributes()
+            return (geometry.width, geometry.height) == self.window_size_hint \
+                and attrs.map_state == X.IsViewable
+        except Exception:
+            return False
 
     def capture(self):
         """화면에 보이는 픽셀을 캡처하므로 다른 창이 가리면 그대로 나타난다."""
@@ -105,6 +118,25 @@ class PurpleWindow:
                 self.stop_latched = True
         return self.stop_latched
 
+    def _focused_window(self):
+        prop = self.root.get_full_property(
+            self.connection.intern_atom("_NET_ACTIVE_WINDOW"), X.AnyPropertyType)
+        return int(prop.value[0]) if prop is not None and len(prop.value) else None
+
+    def _restore_focus(self, focused, pointer):
+        """입력 직후 사용자의 포커스와 마우스 커서를 원래대로 돌려놓는다."""
+        point = self.root.query_pointer()
+        if focused and focused != self.window_id:
+            try:
+                subprocess.run(["wmctrl", "-i", "-a", str(focused)],
+                               check=True, timeout=3)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        if pointer and (point.root_x, point.root_y) != pointer:
+            xtest.fake_input(self.connection, X.MotionNotify,
+                             x=pointer[0], y=pointer[1])
+            self.connection.sync()
+
     def click(self, x, y, expected_geometry, hover=0.0):
         """호출자가 판독한 프레임과 창 위치가 같을 때만 입력한다.
 
@@ -117,20 +149,25 @@ class PurpleWindow:
         left, top, width, height = expected_geometry
         if not (500 < x < width - 45 and 220 < y < 960):
             raise ValueError("클릭 위치가 검증된 플레이 영역 밖입니다")
+        focused = self._focused_window()
+        pointer = self.pointer()
         xtest.fake_input(self.connection, X.MotionNotify, x=left + x, y=top + y)
         self.connection.sync()
         if hover:
             time.sleep(hover)
-        # 이동 직후 활성창도 다시 확인한다. 창 포커스는 강제로 바꾸지 않는다.
+        # 이동 직후 창 상태도 다시 확인한다. 창 포커스는 강제로 바꾸지 않는다.
         if not self.active() or self.geometry() != expected_geometry:
             raise RuntimeError("마우스 이동 후 대상 창이 변경됐습니다")
-        xtest.fake_input(self.connection, X.ButtonPress, 1)
         try:
-            self.connection.sync()
-            time.sleep(0.12)
+            xtest.fake_input(self.connection, X.ButtonPress, 1)
+            try:
+                self.connection.sync()
+                time.sleep(0.12)
+            finally:
+                xtest.fake_input(self.connection, X.ButtonRelease, 1)
+                self.connection.sync()
         finally:
-            xtest.fake_input(self.connection, X.ButtonRelease, 1)
-            self.connection.sync()
+            self._restore_focus(focused, pointer)
 
     def key(self, name, expected_geometry):
         if name not in {f"F{i}" for i in range(1, 9)}:
@@ -138,12 +175,22 @@ class PurpleWindow:
         if not self.active() or self.geometry() != expected_geometry:
             raise RuntimeError("키 입력 직전 대상 창이 변경됐습니다")
         keycode = self.connection.keysym_to_keycode(XK.string_to_keysym(name))
-        xtest.fake_input(self.connection, X.KeyPress, keycode)
+        focused = self._focused_window()
+        pointer = self.pointer()
         try:
-            self.connection.sync()
+            # 키보드 이벤트는 활성 창으로 가므로 입력 동안만 포커스를 빌린다.
+            if focused != self.window_id:
+                subprocess.run(["wmctrl", "-i", "-a", str(self.window_id)],
+                               check=True, timeout=3)
+                time.sleep(0.15)
+            xtest.fake_input(self.connection, X.KeyPress, keycode)
+            try:
+                self.connection.sync()
+            finally:
+                xtest.fake_input(self.connection, X.KeyRelease, keycode)
+                self.connection.sync()
         finally:
-            xtest.fake_input(self.connection, X.KeyRelease, keycode)
-            self.connection.sync()
+            self._restore_focus(focused, pointer)
 
     def close(self):
         self.root.ungrab_key(self.stop_keycode, X.AnyModifier)

@@ -71,6 +71,13 @@ class WindowTests(unittest.TestCase):
         obj.active = Mock(return_value=True)
         obj.geometry = Mock(return_value=(1802, 173, 1933, 1332))
         obj.connection = Mock()
+        obj.window_id = 0x123
+        obj.root = Mock()
+        obj.root.get_full_property.return_value = None
+        point = Mock()
+        point.root_x, point.root_y = 10, 10
+        obj.root.query_pointer.return_value = point
+        obj.pointer = Mock(return_value=(10, 10))
         return obj
 
     @patch("linux_window.xtest.fake_input")

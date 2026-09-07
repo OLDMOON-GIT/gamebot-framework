@@ -100,10 +100,16 @@ class X11IntegrationTests(unittest.TestCase):
         self.assertEqual(self.window.geometry(), (40, 50, 1933, 1332))
         np.testing.assert_array_equal(self.window.capture()[100, 100], [0x56, 0x34, 0x12])
 
-    def test_changed_tab_title_blocks_active_detection(self):
+    def test_changed_tab_title_no_longer_blocks_under_size_policy(self):
+        """포커스 강제 폐지(2026-09-07) 이후 제목이 아니라 크기로 판정한다."""
         self.target.change_property(
             self.atom("_NET_WM_NAME"), self.atom("UTF8_STRING"), 8,
             "다른 탭 - Chromium".encode("utf-8"))
+        self.observer.sync()
+        self.assertTrue(self.window.active())
+
+    def test_wrong_window_size_blocks_active_detection(self):
+        self.target.configure(width=1600, height=900)
         self.observer.sync()
         self.assertFalse(self.window.active())
 
@@ -120,17 +126,19 @@ class X11IntegrationTests(unittest.TestCase):
         self.assertTrue(self.window.stop_pressed())
         self.assertTrue(self.window.stop_pressed())
 
-    def test_inactive_window_rejects_click_and_key_without_input(self):
+    def test_inactive_focus_window_allows_click_under_size_policy(self):
+        """포커스가 없어도 크기·표시 정책이면 클릭을 허용한다(사용자 포커스 보호)."""
         self.set_active(self.root.id)
-        self.assertFalse(self.window.active())
-        pointer_before = self.window.pointer()
+        self.assertTrue(self.window.active())
         self.drain_events()
+        self.window.click(800, 500, self.window.geometry())
+        events = self.drain_events()
+        self.assertTrue(any(e.type in (X.ButtonPress, X.ButtonRelease) for e in events))
+        # 창 위치가 판독과 달라지면 여전히 거부한다.
+        self.target.configure(x=999)
+        self.observer.sync()
         with self.assertRaises(RuntimeError):
-            self.window.click(800, 500, self.window.geometry())
-        with self.assertRaises(RuntimeError):
-            self.window.key("F5", self.window.geometry())
-        self.assertEqual(self.window.pointer(), pointer_before)
-        self.assertEqual(self.drain_events(), [])
+            self.window.click(800, 500, (40, 50, 1933, 1332))
 
 
 if __name__ == "__main__":
