@@ -14,8 +14,12 @@ import numpy as np
 WINDOW_SIZE = (1933, 1332)
 GAME_RECT = (500, 197, 1433, 1074)
 PLAY_RECT = (520, 220, 1300, 750)
-HP_RECT = (1000, 1045, 140, 35)
-MP_RECT = (1250, 1045, 110, 35)
+HP_RECT = (870, 1002, 230, 36)  # CDP 창 실측(2026-09-07): HP 97/134 위치
+MP_RECT = (1180, 1002, 140, 36)
+# CDP 창에서 tesseract가 슬래시를 못 읽는다(실측). 현재/최대 숫자를
+# 분리 크롭으로 읽어 비율을 구한다.
+HP_CUR_RECT = (955, 1005, 50, 32)
+HP_MAX_RECT = (1010, 1005, 60, 32)
 ZONE_RECT = (1765, 995, 165, 45)
 URL_RECT = (190, 50, 500, 50)
 PANEL_CLOSE_RECT = (1510, 200, 90, 40)
@@ -65,6 +69,21 @@ def parse_ratio(text, label):
     if maximum <= 0 or current > maximum:
         return None
     return current / maximum
+
+
+def hp_from_hud_digits(img):
+    """HUD HP 텍스트의 현재/최대 숫자를 분리 크롭으로 읽는다.
+
+    CDP 창 실측(2026-09-07): 슬래시가 OCR에서 유실돼 'HP94134'처럼 붙어
+    나온다. 숫자 영역을 나눠 읽으면 슬래시 없이 비율을 확정할 수 있다.
+    """
+    current = ocr(crop(img, HP_CUR_RECT), whitelist="0123456789")
+    maximum = ocr(crop(img, HP_MAX_RECT), whitelist="0123456789")
+    if current.strip().isdigit() and maximum.strip().isdigit():
+        low, high = int(current), int(maximum)
+        if 0 < high and low <= high:
+            return low / high
+    return None
 
 
 def zone_kind(text):
@@ -264,7 +283,63 @@ def motion_blobs(img, prev, char_pos=None):
     return blobs, change_ratio
 
 
-def analyze(img, target_profiles=None):
+def mob_hp_bars(img):
+    """타겟 몹 머리 위 노란 HP 막대를 찾는다. 전투 지속/종료 판별용.
+
+    실측(2026-09-07): 몹 클릭(타겟) 시 머리 위 이름표와 노란 HP 게이지가
+    표시되고, 처치 후 사라진다. 빨간 캐릭터 HP바/채팅 텍스트와 구분된다.
+    """
+    x0, y0, _, _ = GAME_RECT
+    region = crop(img, GAME_RECT)
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+    yellow = cv2.inRange(hsv, (20, 120, 150), (35, 255, 255))
+    yellow = cv2.morphologyEx(yellow, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
+    contours, _ = cv2.findContours(yellow, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    bars = []
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        if 30 <= w <= 170 and 3 <= h <= 12 and w / h >= 4:
+            bars.append((x0 + x + w // 2, y0 + y, int(w)))
+    return bars
+
+
+# 사용자 지시(2026-09-07): 돌골렘은 때리지 않는다.
+FORBIDDEN_MOBS = {"돌골렘"}
+DANGEROUS_BAR_WIDTH = 135  # HP 막대가 이보다 길면(강한 몹) 이름 확인 전에도 이탈
+
+
+def mob_name_at(img, bar_center):
+    """몹 HP 막대 위 이름표를 OCR한다. 실패 시 None."""
+    x, y = bar_center[:2]
+    text_area = img[max(0, y - 40):max(20, y - 8), max(0, x - 110):x + 110]
+    if text_area.size == 0:
+        return None
+    text = ocr(text_area, lang="kor")
+    return re.sub(r"\s+", "", text) or None
+
+
+def forbidden_mob_check(img):
+    """타겟 몹이 금지 몹(돌골렘 등)인지 판정한다. (금지 여부, 근거 텍스트)."""
+    for bar in mob_hp_bars(img):
+        if bar[2] >= DANGEROUS_BAR_WIDTH:
+            return True, f"HP막대 길이 {bar[2]}px (강한 몹)"
+        name = mob_name_at(img, bar)
+        if name and any(word in name for word in FORBIDDEN_MOBS):
+            return True, name
+    return False, None
+
+
+def aden_drop_at(img, x, y):
+    """드랍 위치가 아덴(노란 코인)인지 확인한다. 잡템 루팅 방지용."""
+    region = img[max(0, y - 22):y + 22, max(0, x - 22):x + 22]
+    if region.size == 0:
+        return False
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+    gold = cv2.inRange(hsv, (18, 130, 160), (38, 255, 255))
+    return np.count_nonzero(gold) >= 12
+
+
+def analyze(img, target_profiles=None, *, require_url=True):
     profiles = validate_target_profiles(
         VERIFIED_TARGET_PROFILES if target_profiles is None else target_profiles)
     result = {"hp": None, "mp": None, "ready": False, "game_visible": False,
@@ -275,12 +350,15 @@ def analyze(img, target_profiles=None):
     if (img.shape[1], img.shape[0]) != WINDOW_SIZE:
         return result
     try:
-        url = ocr(crop(img, URL_RECT))
-        if "purpleon.plaync.com/webplay/linclassic" not in url.replace(" ", ""):
-            result["reason"] = "퍼플온 리니지 URL 확인 실패"
-            return result
+        if require_url:
+            url = ocr(crop(img, URL_RECT))
+            if "purpleon.plaync.com/webplay/linclassic" not in url.replace(" ", ""):
+                result["reason"] = "퍼플온 리니지 URL 확인 실패"
+                return result
         result["hp"] = parse_ratio(ocr(crop(img, HP_RECT),
                                           whitelist="HMP:0123456789/"), "HP")
+        if result["hp"] is None:
+            result["hp"] = hp_from_hud_digits(img)
         result["mp"] = parse_ratio(ocr(crop(img, MP_RECT),
                                           whitelist="HMP:0123456789/"), "MP")
         # 이동 전용 입력은 zone 판독과 무관하게 게임 화면 확인만으로 허용한다.

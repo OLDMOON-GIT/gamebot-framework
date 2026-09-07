@@ -13,10 +13,14 @@ import time
 import cv2
 import numpy as np
 
-from linux_vision import analyze, find_character, motion_blobs, validate_target_profiles
+from linux_vision import (aden_drop_at, analyze, find_character, forbidden_mob_check,
+                          mob_hp_bars, motion_blobs, validate_target_profiles)
 from linux_window import PurpleWindow
 
 
+POTION_THRESHOLD = 0.70  # 사용자 지정(2026-09-07): 70%에서 물약
+MAX_MOB_CANDIDATES = 60  # 이 초과 후보는 전투 이펙트/스크롤 잔상으로 본다
+SAFE_MOB_AREA = 3000     # 이 면적 초과 블롭은 돌골렘급 거대 몹으로 보고 공격 안 함
 RUNTIME = Path("/tmp/linc-bot-linux")
 STOP_PATH = RUNTIME / "stop"
 STATUS_PATH = RUNTIME / "status.json"
@@ -38,7 +42,7 @@ def choose_action(state, *, running, potion_key=None):
     hp = state["hp"]
     if hp is None or hp <= 0:
         return None
-    if hp < 0.55:
+    if hp < POTION_THRESHOLD:
         return ("물약", potion_key) if potion_key else None
     if state["safe_zone"] or not state["mobs"]:
         return None
@@ -49,7 +53,7 @@ def choose_action(state, *, running, potion_key=None):
 def choose_move_or_potion(state, move, potion_key=None):
     """이동 전용 모드에서도 저체력이면 이동보다 물약을 우선한다."""
     hp = state["hp"]
-    if potion_key and hp is not None and 0 < hp < 0.55:
+    if potion_key and hp is not None and 0 < hp < POTION_THRESHOLD:
         return ("물약", potion_key)
     return ("이동", move)
 
@@ -113,7 +117,7 @@ def hunt_loop(window, stop_path, args):
             if frame is None:
                 break
             geometry = window.geometry()
-            state = analyze(frame, target_profiles={})
+            state = analyze(frame, target_profiles={}, require_url=not args.cdp)
             if state["reason"] == "화면 크기 불일치":
                 logging.info("화면 크기 불일치로 창 복구 시도")
                 try:
@@ -126,11 +130,20 @@ def hunt_loop(window, stop_path, args):
             logging.info("HP=%s 마을=%s 사냥=%s/%s %s", state["hp"], state["safe_zone"],
                          kills, args.walk, state["reason"])
             hp = state["hp"]
+            if hp is None:
+                # CDP 창은 HUD 텍스트 슬래시가 OCR에 잘 안 걸린다(실측).
+                # 캐릭터 머리 위 HP 막대 비율로 대체 판독한다(오차 -0.05 보정).
+                bar = find_character(frame)
+                if bar:
+                    hp = max(0.0, bar[2] - 0.05)
+                    state["hp"] = hp
+                    state["game_visible"] = True
+                    logging.info("HP 막대 폴백 판독: %.2f", hp)
             if hp is None or hp <= 0:
                 logging.info("HP 판독 불가/사망: 대기")
                 wait_or_stop(window, args.interval, stop_path)
                 continue
-            if hp < 0.55 and args.potion_key:
+            if hp < POTION_THRESHOLD and args.potion_key:
                 window.key(args.potion_key, geometry)
                 logging.info("물약 %s", args.potion_key)
                 time.sleep(1.0)
@@ -152,13 +165,25 @@ def hunt_loop(window, stop_path, args):
                 continue
             blobs, _ = motion_blobs(later, frame, char[:2] if char else None)
             state["candidates"] = blobs
+            if len(blobs) > MAX_MOB_CANDIDATES:
+                logging.info("후보 과다(%s개): 이펙트/잔상으로 보류", len(blobs))
+                state["candidates"] = []
+                wait_or_stop(window, args.interval, stop_path)
+                continue
             if not blobs:
                 if last_target:
-                    logging.info("전투 종료 추정: 드랍 루팅 %s", last_target)
+                    logging.info("전투 종료 추정: 드랍 확인 %s", last_target)
+                    try:
+                        drop_frame = window.capture()
+                    except (RuntimeError, OSError):
+                        drop_frame = later
+                    # 아덴(노란 코인)만 줍는다 — 잡템 루팅 방지(2026-09-07 지시).
                     for dx, dy in ((0, 0), (35, 30), (-35, 30)):
-                        window.click(max(560, min(last_target[0] + dx, 1290)),
-                                     max(240, min(last_target[1] + dy, 730)), geometry)
-                        time.sleep(0.8)
+                        spot = (max(560, min(last_target[0] + dx, 1290)),
+                                max(240, min(last_target[1] + dy, 730)))
+                        if aden_drop_at(drop_frame, *spot):
+                            window.click(*spot, geometry)
+                            time.sleep(0.8)
                     last_target = None
                 else:
                     logging.info("몹 없음: 배회 이동")
@@ -168,14 +193,39 @@ def hunt_loop(window, stop_path, args):
                                  max(250, min(base[1] + 40, 730)), geometry)
                 wait_or_stop(window, args.interval, stop_path)
                 continue
-            target = max(blobs, key=lambda b: b[2])
+            safe_blobs = [b for b in blobs if b[2] <= SAFE_MOB_AREA]
+            if not safe_blobs:
+                logging.info("후보 전체가 거대 몹(면적>%s): 공격 보류", SAFE_MOB_AREA)
+                wait_or_stop(window, args.interval, stop_path)
+                continue
+            target = max(safe_blobs, key=lambda b: b[2])
             last_target = target[:2]
             kills += 1
             logging.info("몹 공격 #%s: (%s,%s) 면적=%s 후보=%s", kills, target[0], target[1],
                          target[2], len(blobs))
             window.click(target[0], target[1], geometry, hover=0.75)
             save_frame(args.output / "hunt-last.png", later)
-            time.sleep(4.5)
+            # 전투 종료까지 대기: 몹 HP 막대(노란 게이지)가 사라지면 처치 완료.
+            # 금지 몹(돌골렘 등)이 타겟에 걸리면 즉시 이탈한다(2026-09-07 지시).
+            combat_deadline = time.monotonic() + 14
+            while time.monotonic() < combat_deadline:
+                if window.stop_pressed() or stop_path.exists() or not window.active():
+                    break
+                time.sleep(1.5)
+                try:
+                    combat_frame = window.capture()
+                except (RuntimeError, OSError):
+                    break
+                forbidden, why = forbidden_mob_check(combat_frame)
+                if forbidden:
+                    logging.info("금지 몹 감지(%s): 즉시 이탈", why)
+                    window.click(1000, 300, geometry)
+                    last_target = None
+                    break
+                if mob_hp_bars(combat_frame):
+                    continue  # 몹 HP 막대가 남아 있으면 전투 지속
+                break
+            logging.info("전투 대기 종료 (몹 HP 막대 소멸/시간초과)")
             if kills >= args.walk:
                 logging.info("공격 상한 %s 도달: 사냥 종료", args.walk)
                 break
@@ -220,6 +270,8 @@ def main():
     parser.add_argument("--potion-key", choices=[f"F{i}" for i in range(1, 9)],
                         help="실제로 물약이 배치된 것으로 확인한 키만 지정")
     parser.add_argument("--window", type=lambda value: int(value, 0), help="X11 창 ID")
+    parser.add_argument("--cdp", action="store_true",
+                        help="CDP(원격 디버깅) 크롬으로 마우스/포커스 간섭 없이 사냥")
     parser.add_argument("--click", nargs=2, type=int, help="실화면에서 확인한 위치 한 번 클릭")
     parser.add_argument("--walk", type=int, default=1,
                         help="--click 위치를 지정 횟수만큼 interval 간격으로 반복 클릭")
@@ -278,7 +330,12 @@ def main():
                             handlers=[logging.StreamHandler(),
                                       RotatingFileHandler(args.output / "run.log", encoding="utf-8",
                                                           maxBytes=1_000_000, backupCount=2)])
-        window = PurpleWindow(args.window)
+        if args.cdp:
+            from cdp_window import CdpWindow
+            window = CdpWindow()
+            logging.info("CDP 백엔드 연결(마우스/포커스 무간섭)")
+        else:
+            window = PurpleWindow(args.window)
         deadline = time.monotonic() + args.seconds
         previous_pointer = window.pointer()
         user_pause_until = 0.0
