@@ -273,8 +273,28 @@ def detect_mobs(img):
         for yy, xx in zip(*np.where(result >= TEMPLATE_MATCH_THRESHOLD)):
             center = (int(x0 + xx + template.shape[1] // 2),
                       int(y0 + yy + template.shape[0] // 2))
-            hits[(center[0] // 30, center[1] // 30)] = center
+            hits[(center[0] // 30, center[1] // 30)] = (center[0], center[1], path.name)
     return list(hits.values())
+
+
+# 템플릿 실패(공격해도 안 죽는 배경) 기록. 2회 실패 시 템플릿을 삭제한다.
+_template_failures = {}
+
+
+def mark_template_result(name, killed):
+    """템플릿 공격 결과를 기록해 배경 오탐 템플릿을 자동 제거한다."""
+    if killed:
+        _template_failures.pop(name, None)
+        return False
+    count = _template_failures.get(name, 0) + 1
+    _template_failures[name] = count
+    if count >= 2:
+        target = TEMPLATE_DIR / name
+        if target.exists():
+            target.unlink()
+            _template_failures.pop(name, None)
+            return True
+    return False
 
 
 def find_character(img):
@@ -400,14 +420,27 @@ def forbidden_mob_check(img):
     return False, None
 
 
-def aden_drop_at(img, x, y):
-    """드랍 위치가 아덴(노란 코인)인지 확인한다. 잡템 루팅 방지용."""
-    region = img[max(0, y - 22):y + 22, max(0, x - 22):x + 22]
+def aden_drop_at(img, x, y, previous=None):
+    """드랍 위치가 아덴(깜빡이는 금색 코인)인지 확인한다. 잡템 방지용.
+
+    금색만 보면 밝은 흙바닥이 오탐된다(실측). 아덴은 반짝임 애니메이션이
+    있어 이전 프레임과 밝기가 변하는 금색 픽셀로 판정한다.
+    """
+    top, bottom = max(0, y - 22), y + 22
+    left, right = max(0, x - 22), x + 22
+    region = img[top:bottom, left:right]
     if region.size == 0:
         return False
     hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
-    gold = cv2.inRange(hsv, (18, 130, 160), (38, 255, 255))
-    return np.count_nonzero(gold) >= 12
+    # CDP 창 실측(2026-09-07): 아덴 코인 H12~18 S48~91 V141~165(주황 금색).
+    gold = cv2.inRange(hsv, (8, 40, 130), (25, 130, 180))
+    if previous is not None:
+        before = previous[top:bottom, left:right]
+        if before.shape == region.shape:
+            blink = cv2.absdiff(region, before).max(axis=2)
+            if np.count_nonzero(gold & (blink > 25)) >= 4:
+                return True
+    return np.count_nonzero(gold) >= 15
 
 
 def analyze(img, target_profiles=None, *, require_url=True):

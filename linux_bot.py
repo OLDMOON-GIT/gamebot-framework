@@ -15,8 +15,8 @@ import cv2
 import numpy as np
 
 from linux_vision import (aden_drop_at, analyze, detect_mobs, find_character,
-                          forbidden_mob_check, mob_hp_bars, motion_blobs,
-                          save_mob_template, validate_target_profiles)
+                          forbidden_mob_check, mark_template_result, mob_hp_bars,
+                          motion_blobs, save_mob_template, validate_target_profiles)
 from linux_window import PurpleWindow
 
 
@@ -90,6 +90,7 @@ def hunt_loop(window, stop_path, args):
     kills = 0
     last_target = None
     stale = 0  # 몹 없음 연속 횟수 — 방향 순환용
+    prev_hp = None  # 전투 중 판정: HP가 하락하면 자동전투가 돌고 있는 것이다
     state = {"reason": "사냥 시작", "hp": None, "mp": None, "ready": False,
              "game_visible": False, "safe_zone": False, "mobs": [], "candidates": []}
     deadline = time.monotonic() + args.seconds
@@ -151,6 +152,15 @@ def hunt_loop(window, stop_path, args):
                 logging.info("물약 %s", args.potion_key)
                 time.sleep(1.0)
                 continue
+            if prev_hp is not None and hp < prev_hp - 0.02:
+                # HP가 하락 중 = 몹이 붙어서 자동전투 중(실측: 붙은 몹은
+                # 캐릭터 제외 반경에 가려 탐지도 안 된다). 개입하지 않는다.
+                logging.info("자동전투 진행 중(HP %.2f→%.2f): 대기", prev_hp, hp)
+                prev_hp = hp
+                stale = 0
+                time.sleep(2.5)
+                continue
+            prev_hp = hp
             if state["safe_zone"]:
                 # 마을 탈출 실측 경로: 서쪽 (580,700) 클릭 반복이 하이네에서
                 # 필드(Normal zone)로 빠져나가는 유일하게 검증된 방향이다.
@@ -165,12 +175,26 @@ def hunt_loop(window, stop_path, args):
                 near = [m for m in template_mobs
                         if not (char and math.hypot(m[0]-char[0], m[1]-char[1]) <= 90)]
                 if near:
+                    tx, ty, tname = near[0]
                     kills += 1
-                    target = near[0]
-                    last_target = target
-                    logging.info("템플릿 몹 공격 #%s: %s", kills, target)
-                    window.click(target[0], target[1], geometry, hover=0.75)
-                    time.sleep(5.5)
+                    last_target = (tx, ty)
+                    logging.info("템플릿 몹 공격 #%s: (%s,%s) %s", kills, tx, ty, tname)
+                    window.click(tx, ty, geometry, hover=0.75)
+                    time.sleep(6.0)
+                    try:
+                        after = window.capture()
+                    except (RuntimeError, OSError):
+                        continue
+                    # 6초 뒤에도 같은 템플릿이 같은 자리에 있으면 배경이다.
+                    rematch = [m for m in detect_mobs(after)
+                               if m[2] == tname and abs(m[0]-tx) <= 40 and abs(m[1]-ty) <= 40]
+                    if rematch:
+                        removed = mark_template_result(tname, killed=False)
+                        logging.info("템플릿 %s 배경 판정%s", tname, " → 삭제" if removed else "")
+                    else:
+                        mark_template_result(tname, killed=True)
+                        kills += 1  # 실제 처치로 확정
+                        logging.info("템플릿 %s 처치 확정", tname)
                     continue
             # 몹 탐지 2순위: 차분(움직이는 몹)
             char = find_character(frame)
@@ -207,7 +231,7 @@ def hunt_loop(window, stop_path, args):
                     for dx, dy in ((0, 0), (35, 30), (-35, 30)):
                         spot = (max(560, min(last_target[0] + dx, 1290)),
                                 max(240, min(last_target[1] + dy, 730)))
-                        if aden_drop_at(drop_frame, *spot):
+                        if aden_drop_at(drop_frame, *spot, previous=later):
                             window.click(*spot, geometry)
                             time.sleep(0.8)
                     last_target = None

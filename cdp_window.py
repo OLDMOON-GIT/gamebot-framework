@@ -24,6 +24,19 @@ VIEWPORT = {"width": WINDOW_SIZE[0], "height": WINDOW_SIZE[1],
             "deviceScaleFactor": 1, "mobile": False}
 F_KEYCODES = {f"F{i}": 111 + i for i in range(1, 13)}  # F1=112 ... windowsVirtualKeyCode
 
+# 게임 스트림 좌표계(2026-09-07 실측): 비디오 rect (401,102) 1531x1148에
+# 1280x960 스트림이 확대 렌더링된다. 스크린샷 좌표 → 게임 좌표 변환 후
+# dispatch해야 서버가 정확한 지점을 클릭한다(미변환 클릭은 엉뚱한 이동).
+VIDEO_RECT = (401, 102, 1531, 1148)
+STREAM_SIZE = (1280, 960)
+
+
+def to_stream(x, y):
+    """스크린샷(뷰포트) 좌표를 게임 스트림 좌표로 변환한다."""
+    vx, vy, vw, vh = VIDEO_RECT
+    sw, sh = STREAM_SIZE
+    return round((x - vx) * sw / vw), round((y - vy) * sh / vh)
+
 
 class CdpWindow:
     """linux_window.PurpleWindow와 같은 인터페이스의 CDP 백엔드."""
@@ -54,10 +67,18 @@ class CdpWindow:
 
     # --- PurpleWindow 호환 인터페이스 ---
     def active(self):
+        """게임 스트리밍 비디오가 실제 재생 중일 때만 동작한다.
+
+        본인인증/로비/로딩 창에서는 HP 게이지 오판으로 입력이 새어 들어가
+        사용자 입력을 방해한다(2026-09-07 사고). DOM 비디오 상태로 확정한다.
+        """
         try:
-            info = self.send("Page.getNavigationHistory")
-            return bool(info.get("currentIndex", -1) >= 0)
-        except (OSError, websocket.WebSocketException):
+            result = self.send("Runtime.evaluate", {
+                "expression": "(()=>{const v=document.querySelector('video');"
+                              "return !!(v && !v.paused && v.readyState>=2 && v.videoWidth>0)})()",
+                "returnByValue": True})
+            return result.get("result", {}).get("value") is True
+        except (OSError, websocket.WebSocketException, KeyError):
             return False
 
     def geometry(self):
@@ -87,16 +108,21 @@ class CdpWindow:
         # 사냥 좌표 검증(PLAY_RECT)은 호출부(hunt_loop)가 담당한다.
         if not (0 <= x < WINDOW_SIZE[0] and 0 <= y < WINDOW_SIZE[1]):
             raise ValueError("클릭 위치가 뷰포트 밖입니다")
+        gx, gy = to_stream(x, y)
+        # hover 동안 커서 위치를 반복 전송한다(스트리밍 서버의 커서 인식).
+        moves = max(1, int(hover / 0.2))
+        for i in range(moves):
+            self.send("Input.dispatchMouseEvent",
+                      {"type": "mouseMoved", "x": gx + (i % 2), "y": gy,
+                       "button": "none"})
+            if hover:
+                time.sleep(0.2)
         self.send("Input.dispatchMouseEvent",
-                  {"type": "mouseMoved", "x": x, "y": y, "button": "none"})
-        if hover:
-            time.sleep(hover)
-        self.send("Input.dispatchMouseEvent",
-                  {"type": "mousePressed", "x": x, "y": y, "button": "left",
+                  {"type": "mousePressed", "x": gx, "y": gy, "button": "left",
                    "clickCount": 1})
         time.sleep(0.12)
         self.send("Input.dispatchMouseEvent",
-                  {"type": "mouseReleased", "x": x, "y": y, "button": "left",
+                  {"type": "mouseReleased", "x": gx, "y": gy, "button": "left",
                    "clickCount": 1})
 
     def key(self, name, expected_geometry):
