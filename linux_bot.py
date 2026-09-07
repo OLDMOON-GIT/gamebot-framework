@@ -14,7 +14,7 @@ import time
 import cv2
 import numpy as np
 
-from linux_vision import (aden_drop_at, analyze, detect_mobs, find_character,
+from linux_vision import (analyze, detect_mobs, find_character, scan_drops,
                           forbidden_mob_check, mark_template_result, mob_hp_bars,
                           motion_blobs, save_mob_template, validate_target_profiles)
 from linux_window import PurpleWindow
@@ -91,6 +91,7 @@ def hunt_loop(window, stop_path, args):
     last_target = None
     stale = 0  # 몹 없음 연속 횟수 — 방향 순환용
     prev_hp = None  # 전투 중 판정: HP가 하락하면 자동전투가 돌고 있는 것이다
+    loot_blacklist = set()  # 클릭해도 안 줍히는 좌표(바닥 오탐)
     state = {"reason": "사냥 시작", "hp": None, "mp": None, "ready": False,
              "game_visible": False, "safe_zone": False, "mobs": [], "candidates": []}
     deadline = time.monotonic() + args.seconds
@@ -221,20 +222,27 @@ def hunt_loop(window, stop_path, args):
                     time.sleep(1.2)
                     continue
             if not blobs:
-                if last_target:
-                    logging.info("전투 종료 추정: 드랍 확인 %s", last_target)
+                # 화면의 밝은 드랍 군집을 직접 찾아 줍는다(클릭→사라짐 검증).
+                drops = [d for d in scan_drops(later)
+                         if (d[0], d[1]) not in loot_blacklist]
+                if drops:
+                    before_drops = {(d[0] // 20, d[1] // 20) for d in drops}
+                    for dx_, dy_, _ in drops[:3]:
+                        window.click(max(560, min(dx_, 1290)),
+                                     max(240, min(dy_, 730)), geometry)
+                        time.sleep(1.2)
                     try:
-                        drop_frame = window.capture()
+                        after_drops = {(d[0] // 20, d[1] // 20)
+                                       for d in scan_drops(window.capture())}
                     except (RuntimeError, OSError):
-                        drop_frame = later
-                    # 아덴(노란 코인)만 줍는다 — 잡템 루팅 방지(2026-09-07 지시).
-                    for dx, dy in ((0, 0), (35, 30), (-35, 30)):
-                        spot = (max(560, min(last_target[0] + dx, 1290)),
-                                max(240, min(last_target[1] + dy, 730)))
-                        if aden_drop_at(drop_frame, *spot, previous=later):
-                            window.click(*spot, geometry)
-                            time.sleep(0.8)
-                    last_target = None
+                        after_drops = before_drops
+                    picked = before_drops - after_drops
+                    for d in drops[:3]:
+                        if (d[0] // 20, d[1] // 20) not in picked:
+                            loot_blacklist.add((d[0], d[1]))
+                    if picked:
+                        logging.info("드랍 줍기 성공 %s개", len(picked))
+                    continue
                 else:
                     stale += 1
                     # 우측 고정 배회는 몹 없는 지역으로 무한 직진한다(실측).

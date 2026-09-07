@@ -228,6 +228,31 @@ def red_name_candidates(img):
     return result
 
 
+def scan_drops(img):
+    """화면에서 줍기 가능한 드랍(밝은 아이템 군집) 후보를 찾는다.
+
+    실측(2026-09-07): 드랍 색상은 관측마다 달라 색 지정이 불안정하고
+    점멸도 없다. 밝기 군집(드랍은 바닥보다 밝게 뭉친다)으로 후보를
+    내고, 클릭 후 사라짐으로 실제 드랍인지 검증한다(호출부).
+    """
+    x0, y0, width, height = PLAY_RECT
+    region = img[y0:y0 + height, x0:x0 + width]
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+    bright = cv2.inRange(hsv, (0, 0, 140), (180, 255, 255))
+    bright = cv2.morphologyEx(bright, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+    contours, _ = cv2.findContours(bright, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    drops = []
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if not (60 <= area <= 2600):
+            continue
+        x, y, w, h = cv2.boundingRect(contour)
+        if w > 90 or h > 90:
+            continue
+        drops.append((x0 + x + w // 2, y0 + y + h // 2, int(area)))
+    return sorted(drops, key=lambda d: -d[2])
+
+
 # 몹 스프라이트 템플릿: 공격 지점 크롭을 자동 적립해 matchTemplate로
 # 정지 몹까지 정확히 찾는다(차분은 움직임 없으면 놓친다).
 TEMPLATE_DIR = Path(__file__).parent / "mob_templates"
