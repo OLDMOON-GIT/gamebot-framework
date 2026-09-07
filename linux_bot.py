@@ -149,9 +149,11 @@ def hunt_loop(window, stop_path, args):
                 wait_or_stop(window, args.interval, stop_path)
                 continue
             if hp < POTION_THRESHOLD and args.potion_key:
-                window.key(args.potion_key, geometry)
-                logging.info("물약 %s", args.potion_key)
-                time.sleep(1.0)
+                # CDP dispatchKeyEvent가 게임에 안 통한다(실측: HP 0.5대
+                # 연타 무효). 퀵슬롯 첫 아이콘(물약, 실측 1590,1255) 클릭.
+                window.click(1590, 1255, geometry)
+                logging.info("물약 클릭(퀵슬롯)")
+                time.sleep(1.2)
                 continue
             if prev_hp is not None and hp < prev_hp - 0.02:
                 # HP가 하락 중 = 몹이 붙어서 자동전투 중(실측: 붙은 몹은

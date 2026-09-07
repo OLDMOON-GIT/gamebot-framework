@@ -108,22 +108,16 @@ class CdpWindow:
         # 사냥 좌표 검증(PLAY_RECT)은 호출부(hunt_loop)가 담당한다.
         if not (0 <= x < WINDOW_SIZE[0] and 0 <= y < WINDOW_SIZE[1]):
             raise ValueError("클릭 위치가 뷰포트 밖입니다")
-        gx, gy = to_stream(x, y)
-        # hover 동안 커서 위치를 반복 전송한다(스트리밍 서버의 커서 인식).
-        moves = max(1, int(hover / 0.2))
-        for i in range(moves):
-            self.send("Input.dispatchMouseEvent",
-                      {"type": "mouseMoved", "x": gx + (i % 2), "y": gy,
-                       "button": "none"})
-            if hover:
-                time.sleep(0.2)
-        self.send("Input.dispatchMouseEvent",
-                  {"type": "mousePressed", "x": gx, "y": gy, "button": "left",
-                   "clickCount": 1})
+        # dispatch 좌표는 뷰포트(clientX) 기준이다(실측: 전송값=clientX 1:1).
+        # 스트리밍 플레이어가 내부에서 게임 좌표로 변환하므로 여기서는
+        # 절대 변환하지 않는다 — to_stream을 여기 넣으면 이중 변환으로
+        # 좌표가 비디오 밖으로 나가 클릭이 무시된다(2026-09-07 사고).
+        # 웹플레이(모바일 클라이언트 스트리밍)는 마우스가 아니라 터치 입력을
+        # 소비한다(실측: dispatchTouchEvent만 이동/조작 반응, 마우스 무반응).
+        self.send("Input.dispatchTouchEvent",
+                  {"type": "touchStart", "touchPoints": [{"x": x, "y": y, "id": 1}]})
         time.sleep(0.12)
-        self.send("Input.dispatchMouseEvent",
-                  {"type": "mouseReleased", "x": gx, "y": gy, "button": "left",
-                   "clickCount": 1})
+        self.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
 
     def key(self, name, expected_geometry):
         if name not in {f"F{i}" for i in range(1, 9)}:
