@@ -7,6 +7,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
+import subprocess
 import time
 
 import cv2
@@ -91,15 +92,35 @@ def hunt_loop(window, stop_path, args):
                 logging.info("중지 요청으로 사냥 종료")
                 break
             if not window.active():
-                state["reason"] = "퍼플온 창이 비활성 상태"
-                write_status(running=True, input_enabled=False, hunting=True, kills=kills, **state)
-                wait_or_stop(window, args.interval, stop_path)
+                try:
+                    window.find_and_restore()
+                    logging.info("퍼플온 창 복구: %s", hex(window.window_id))
+                except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                    state["reason"] = f"퍼플온 창 복구 실패 대기: {exc}"
+                    write_status(running=True, input_enabled=False, hunting=True,
+                                 kills=kills, **state)
+                    wait_or_stop(window, args.interval, stop_path)
+                    continue
+            try:
+                frame = stable_frame(window, stop_path)
+            except (RuntimeError, OSError) as exc:
+                logging.info("캡처 실패로 창 복구 시도: %s", exc)
+                try:
+                    window.find_and_restore()
+                except (RuntimeError, OSError, subprocess.SubprocessError):
+                    pass
                 continue
-            frame = stable_frame(window, stop_path)
             if frame is None:
                 break
             geometry = window.geometry()
             state = analyze(frame, target_profiles={})
+            if state["reason"] == "화면 크기 불일치":
+                logging.info("화면 크기 불일치로 창 복구 시도")
+                try:
+                    window.find_and_restore()
+                except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                    logging.info("창 복구 실패: %s", exc)
+                continue
             state["mobs"] = []
             write_status(running=True, input_enabled=True, hunting=True, kills=kills, **state)
             logging.info("HP=%s 마을=%s 사냥=%s/%s %s", state["hp"], state["safe_zone"],
@@ -115,11 +136,10 @@ def hunt_loop(window, stop_path, args):
                 time.sleep(1.0)
                 continue
             if state["safe_zone"]:
-                logging.info("마을 안전 구역: 배회 이동")
-                char = find_character(frame)
-                base = char[:2] if char else (1150, 650)
-                window.click(max(600, min(base[0] + 160, 1290)),
-                             max(250, min(base[1] + 40, 730)), geometry)
+                # 마을 탈출 실측 경로: 서쪽 (580,700) 클릭 반복이 하이네에서
+                # 필드(Normal zone)로 빠져나가는 유일하게 검증된 방향이다.
+                logging.info("마을 안전 구역: 서쪽 탈출 이동")
+                window.click(580, 700, geometry)
                 wait_or_stop(window, args.interval, stop_path)
                 continue
             # 차분 몹 탐지: 안정 프레임과 1초 후 프레임 비교

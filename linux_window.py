@@ -1,11 +1,15 @@
 """열려 있는 퍼플온 X11 창 캡처와 활성 창에 한정한 입력."""
 
+import subprocess
 import time
 
 import numpy as np
 from PIL import ImageGrab
 from Xlib import X, XK, display
 from Xlib.ext import xtest
+
+
+CALIBRATED_GEOMETRY = (1457, 468, 1933, 1332)
 
 
 class PurpleWindow:
@@ -31,6 +35,34 @@ class PurpleWindow:
         self.root.grab_key(self.stop_keycode, X.AnyModifier, False,
                            X.GrabModeAsync, X.GrabModeAsync)
         self.connection.sync()
+
+    def find_and_restore(self):
+        """퍼플온 창이 재생성/리사이즈됐을 때 다시 찾아 캘리브레이션 위치로 복구한다.
+
+        웹플레이 스트리밍 세션 전환으로 창 ID가 바뀌는 경우(2026-09-07 실측
+        3회) 사냥이 화면 크기 불일치로 멈춘다. 창을 다시 특정해 크기/위치를
+        복원하고 활성화한다. 실패 시 예외를 던지고 호출자가 대기한다.
+        """
+        listing = self.root.get_full_property(
+            self.connection.intern_atom("_NET_CLIENT_LIST"), X.AnyPropertyType)
+        found = [int(ident) for ident in (listing.value if listing is not None else [])
+                 if self._title(self.connection.create_resource_object("window", int(ident)))
+                 == "PURPLE On - Chromium"]
+        if len(found) != 1:
+            raise RuntimeError(f"퍼플온 창을 하나로 특정할 수 없습니다: {len(found)}개")
+        if found[0] != self.window_id:
+            self.window = self.connection.create_resource_object("window", found[0])
+            self.window_id = found[0]
+        geometry = self.window.get_geometry()
+        if (geometry.width, geometry.height) != (CALIBRATED_GEOMETRY[2], CALIBRATED_GEOMETRY[3]):
+            subprocess.run(
+                ["wmctrl", "-i", "-r", str(self.window_id), "-e",
+                 "0,%d,%d,%d,%d" % CALIBRATED_GEOMETRY],
+                check=True, timeout=5)
+            self.connection.sync()
+        subprocess.run(["wmctrl", "-i", "-a", str(self.window_id)], check=True, timeout=5)
+        self.connection.sync()
+        return self.geometry()
 
     def _title(self, win):
         prop = win.get_full_property(
