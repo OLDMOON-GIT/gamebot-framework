@@ -142,6 +142,29 @@ class StateMachineTests(unittest.TestCase):
             bot.step()
         self.assertEqual(bot.ground_idx, 1)
 
+    def test_supply_reranks_grounds_from_log(self):
+        """사냥 기록이 있으면 SUPPLY에서 우선순위가 재배열된다(설계 13번)."""
+        import json, time
+        from pathlib import Path
+        log = Path(__file__).parent / "hunt_log.jsonl"
+        keep = log.read_text(encoding="utf-8") if log.exists() else ""
+        try:
+            with log.open("a", encoding="utf-8") as sink:
+                sink.write(json.dumps({"t": time.time(), "ground": "A터",
+                                       "minutes": 60, "potions": 600,
+                                       "death": True}) + "\n")
+            bot, win, _ = make_bot(hp=1.0, safe=True)
+            bot.state = "SUPPLY"
+            with patch_view({"hp": 1.0, "safe_zone": True, "_frame": None}):
+                bot.step()
+            names = [g["name"] for g in bot.cfg["hunting_grounds"]]
+            self.assertEqual(names[0], "B터")
+        finally:
+            if keep:
+                log.write_text(keep, encoding="utf-8")
+            elif log.exists():
+                log.unlink()
+
     def test_travel_arrival_starts_hunt(self):
         bot, win, _ = make_bot(hp=1.0, safe=False)
         bot.state = "TRAVEL"

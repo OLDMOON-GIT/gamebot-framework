@@ -73,6 +73,13 @@ class CycleBot:
 
     def run_supply(self, view):
         """소모품 확인. 부족하면 상점 구매(좌표는 config). 사람이 채워주면 통과."""
+        # 마을 복귀 시점에 사냥 기록으로 사냥터 우선순위를 재계산한다(설계 13번).
+        from ground_ranker import load_records, order_config_grounds
+        grounds = order_config_grounds(self.cfg, load_records())
+        if [g.get("name") for g in grounds] != [g.get("name") for g in self.cfg.get("hunting_grounds", [])]:
+            logging.info("사냥터 우선순위 재조정: %s", [g["name"] for g in grounds])
+            self.cfg["hunting_grounds"] = grounds
+            self.ground_idx = 0
         need = self.cfg.get("min_potions", 50)
         # 인벤을 열어 물약 수량을 확인한다 — 좌표 미실측이면 보류 판정.
         inv = self.cfg.get("inventory_button")
