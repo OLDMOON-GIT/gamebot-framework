@@ -64,7 +64,23 @@ def patch_view(v):
     return patch.object(CycleBot, "read", lambda self: v)
 
 
-class TownTests(unittest.TestCase):
+class IsolatedLogCase(unittest.TestCase):
+    """hunt_log.jsonl을 테스트마다 격리한다(일일 상한/순위 판정 오염 방지)."""
+
+    def setUp(self):
+        self.log = Path(__file__).parent / "hunt_log.jsonl"
+        self._keep = self.log.read_text(encoding="utf-8") if self.log.exists() else ""
+        if self.log.exists():
+            self.log.unlink()
+
+    def tearDown(self):
+        if self._keep:
+            self.log.write_text(self._keep, encoding="utf-8")
+        elif self.log.exists():
+            self.log.unlink()
+
+
+class TownTests(IsolatedLogCase):
     def test_unreadable_stops(self):
         """판독 불가 = 모르는 화면 = 정지: TOWN 유지, 클릭 없음."""
         bot, win = make_bot()
@@ -111,7 +127,7 @@ class TownTests(unittest.TestCase):
         self.assertIn((10, 10), win.clicks)
 
 
-class SupplySelectTests(unittest.TestCase):
+class SupplySelectTests(IsolatedLogCase):
     def test_supply_without_inventory_waits(self):
         """인벤 좌표 미실측이면 터치 없이 대기(사람 보급)."""
         bot, win = make_bot()
@@ -159,7 +175,7 @@ class SupplySelectTests(unittest.TestCase):
         self.assertEqual(bot.state, "END")
 
 
-class MoveHuntTests(unittest.TestCase):
+class MoveHuntTests(IsolatedLogCase):
     def test_move_arrival_starts_ats_once(self):
         """도착 → ATS_HUNT 진입 시 ATS 시작 클릭이 정확히 1회 세트."""
         bot, win = make_bot()
@@ -226,7 +242,7 @@ class MoveHuntTests(unittest.TestCase):
         self.assertEqual(bot.return_reason, "ats_time_over")
 
 
-class ReturnTests(unittest.TestCase):
+class ReturnTests(IsolatedLogCase):
     def test_double_emergency_excludes_ground_today(self):
         """긴급귀환 2회 → 해당 사냥터 당일 제외 + 다음 사냥터."""
         bot, _ = make_bot()
@@ -267,6 +283,80 @@ def restore_log(log, keep):
         log.write_text(keep, encoding="utf-8")
     elif log.exists():
         log.unlink()
+
+
+class HardenedRulesTests(IsolatedLogCase):
+    """리뷰로 발견한 CRIT/MAJOR 수정 검증."""
+
+    def test_end_state_does_not_crash(self):
+        """END 진입 후에도 step이 크래시 없이 대기 메시지를 낸다."""
+        bot, _ = make_bot()
+        bot.state = "END"
+        with patch_view(view(1.0, safe=True)):
+            message = bot.step()
+        self.assertEqual(bot.state, "END")
+        self.assertIn("종료", message)
+
+    def test_return_uses_scroll_when_in_field(self):
+        """봇이 귀환을 결정한 필드 상태면 주문서를 직접 쓴다."""
+        bot, win = make_bot()
+        bot.current_ground = "A터"
+        bot.hunt_started = time.monotonic() - 60
+        bot.state = "RETURN"
+        bot.return_reason = "potion_preempt"
+        with patch.object(CycleBot, "read",
+                          side_effect=[view(0.9), view(1.0, safe=True)]):
+            bot.step()
+        self.assertIn(tuple(bot.cfg["return_scroll"]), win.clicks)
+        self.assertEqual(bot.state, "TOWN")
+
+    def test_return_without_scroll_delegates_to_ats(self):
+        """주문서 좌표 미실측이면 터치 없이 L0에 맡긴다(클릭 0회)."""
+        bot, win = make_bot(return_scroll=None)
+        bot.current_ground = "A터"
+        bot.hunt_started = time.monotonic() - 60
+        bot.state = "RETURN"
+        bot.return_reason = "potion_preempt"
+        with patch_view(view(1.0, safe=True)):
+            bot.step()
+        self.assertEqual(bot.state, "TOWN")
+        self.assertNotIn(None, win.clicks)
+
+    def test_move_triple_failure_selects_next_ground(self):
+        """이동 3회 실패 → 다음 사냥터 선택으로(SUPPLY 경유)."""
+        bot, _ = make_bot()
+        bot.state = "MOVE"
+        for _ in range(3):
+            with patch_view(view(1.0, safe=True)):  # 계속 마을 = 이동 실패
+                bot.step()
+        self.assertEqual(bot.state, "SELECT_HUNT")
+        self.assertEqual(bot.ground_idx, 1)
+        self.assertEqual(bot._move_attempts, 0)
+
+    def test_daily_cap_ends_without_ats_reader(self):
+        """잔여 판독 없이 일일 누적 상한을 넘으면 END."""
+        with (Path(__file__).parent / "hunt_log.jsonl").open("a", encoding="utf-8") as sink:
+            sink.write(json.dumps({"t": time.time(), "date": bot_date(),
+                                   "ground": "A터", "minutes": 181,
+                                   "potions": 0, "reason": "ats_time_over"}) + "\n")
+        bot, _ = make_bot()  # ats_time_reader 없음 → None 판정 경로
+        with patch_view(view(1.0, safe=True)):
+            bot.step()
+        self.assertEqual(bot.state, "END")
+
+    def test_potion_consumption_accumulates(self):
+        """퀵슬롯 잔량 감소분을 사냥 소비로 누적한다(로그 품질)."""
+        bot, _ = make_bot()
+        bot.state = "ATS_HUNT"
+        bot._ats_started = True
+        bot.hunt_started = time.monotonic()
+        seq = iter([300, 240])
+        with patch_view(view(0.9)), \
+                patch.object(CycleBot, "quickslot_potions",
+                             lambda self, v: next(seq)):
+            bot.step()
+            bot.step()
+        self.assertEqual(bot.stats["potions"], 60)
 
 
 if __name__ == "__main__":

@@ -39,6 +39,11 @@ RETURN_REASONS = ("potion_preempt", "hp_danger", "weight", "idle_no_combat",
                   "ats_time_over", "manager_stop", "unknown")
 
 
+def cfg_daily_cap(cfg):
+    """일일 사냥 누적 상한(분). 공식 하루 3시간 기준 기본 180."""
+    return float(cfg.get("daily_hunt_cap_minutes", 180))
+
+
 class CycleBot:
     def __init__(self, window, config):
         self.window = window
@@ -57,6 +62,8 @@ class CycleBot:
         self._ats_configured = False
         self._ats_started = False
         self._stall_count = 0
+        self._move_attempts = 0
+        self._last_potions = None
 
     # --- 공통 ---
     def read(self):
@@ -100,7 +107,20 @@ class CycleBot:
             charged = self.try_charge_ats()
             if not charged:
                 return "END", "ATS 잔여 0: 오늘은 종료(06시 갱신)"
-        return "SUPPLY", f"마을 확인 ATS잔여={ats_left}"
+        # 잔여 판독이 없으면(null) 일일 사냥 누적 상한으로 대신 판정한다.
+        if ats_left is None and \
+                self.daily_hunt_minutes() >= cfg_daily_cap(self.cfg):
+            return "END", f"일일 사냥 상한({cfg_daily_cap(self.cfg)}분) 도달"
+        return "SUPPLY", f"마을 확인 ATS잔여={ats_left} 일일누적={self.daily_hunt_minutes():.0f}분"
+
+    def daily_hunt_minutes(self):
+        """오늘 날짜 hunt_log의 minutes 합계(ATS 잔여 판독 없을 때 상한 판정)."""
+        from ground_ranker import load_records
+        total = 0.0
+        for record in load_records():
+            if record.get("date") == self.today:
+                total += record.get("minutes", 0.0)
+        return total
 
     def ats_time_left(self, view):
         """ATS 잔여 시간 판독(분). 좌표 미실측이면 None(판단 보류)."""
@@ -159,7 +179,7 @@ class CycleBot:
         return "MOVE", f"사냥터 결정: {ground['name']}"
 
     def run_move(self, view):
-        """이동: 두루마리 즐겨찾기/입장 NPC → 도착 확인."""
+        """이동: 두루마리 즐겨찾기/입장 NPC → 도착 확인. 3회 실패 시 다음 사냥터."""
         pool = self.grounds()
         ground = pool[self.ground_idx % len(pool)]
         steps = [self.cfg["scroll_button"]] + ground.get("scroll_path", [])
@@ -168,12 +188,19 @@ class CycleBot:
             time.sleep(0.9)
         time.sleep(4.0)
         arrived = self.read()
-        if arrived is None or arrived["hp"] is None:
-            return "MOVE", "이동 후 판독 불가: 재시도"
-        if arrived["safe_zone"]:
-            return "MOVE", "아직 마을: 이동 재시도"
+        arrived_ok = arrived is not None and arrived["hp"] is not None \
+            and not arrived["safe_zone"]
+        if not arrived_ok:
+            self._move_attempts += 1
+            if self._move_attempts >= 3:
+                self._move_attempts = 0
+                self.ground_idx += 1
+                return "SELECT_HUNT", f"이동 3회 실패: 다음 사냥터로"
+            return "MOVE", "이동 실패/미확인: 재시도"
+        self._move_attempts = 0
         self.hunt_started = time.monotonic()
         self.hp_low_since = None
+        self._last_potions = None
         self.stats = {"potions": 0, "emergency": 0}
         return "ATS_HUNT", f"도착: {ground['name']}"
 
@@ -225,9 +252,14 @@ class CycleBot:
             self._stall_count = 0  # 재시작 직후 다시 정지 판정 초기화
         # L1 예방: 주홍 안전재고 이하 → 정상 귀환(공식 ATS는 개수 기준 미지원).
         potions = self.quickslot_potions(view)
-        if potions is not None and potions <= cfg.get("potion_reserve", 50):
-            self.return_reason = "potion_preempt"
-            return "RETURN", f"주홍 안전재고({potions}개): 예방 귀환"
+        if potions is not None:
+            # 잔량 감소분 = 이번 사냥 소비(ATS가 마신 물약 수집, 로그용).
+            if self._last_potions is not None and potions < self._last_potions:
+                self.stats["potions"] += self._last_potions - potions
+            self._last_potions = potions
+            if potions <= cfg.get("potion_reserve", 50):
+                self.return_reason = "potion_preempt"
+                return "RETURN", f"주홍 안전재고({potions}개): 예방 귀환"
         # 감시 지표: HP 추이(긴급귀환 직전 상황 기록용).
         now = time.monotonic()
         danger = cfg.get("danger_hp", 0.40)
@@ -266,9 +298,18 @@ class CycleBot:
         return "unknown"
 
     def run_return(self, view):
-        """귀환 처리: 원인별 대응 + 긴급귀환 연속 시 당일 제외."""
+        """귀환 처리: 필요 시 귀환 주문서 사용 → 원인별 대응 + 당일 제외."""
         reason = self.return_reason or "unknown"
         name = self.ground_name()
+        # 필드에 남아 있고 봇이 귀환을 결정한 상황이면 직접 주문서를 쓴다.
+        # 좌표 미실측(return_scroll 없음)이면 L0(ATS 자체 귀환)에 맡긴다.
+        scroll = self.cfg.get("return_scroll")
+        if scroll and view is not None and view.get("hp") and not view.get("safe_zone"):
+            self.click(*scroll)
+            time.sleep(5.0)
+            home = self.read()
+            if home is not None:
+                view = home
         if reason in ("hp_danger",):
             self.stats["emergency"] += 1
             self.emergency_returns[name] = self.emergency_returns.get(name, 0) + 1
@@ -281,7 +322,13 @@ class CycleBot:
             self.emergency_returns.pop(name, None)
         self.log_cycle(reason)
         self.return_reason = None
+        if view is not None and view.get("hp") is not None and not view.get("safe_zone"):
+            return "RETURN", "아직 필드: 귀환 재시도"
         return "TOWN", f"귀환 완료 원인={reason}"
+
+    def run_end(self, view):
+        """하루 종료(ATS 시간 소진). 별도 조치 없이 대기 — main이 루프를 끊는다."""
+        return "END", "ATS 시간 종료: 루프 종료"
 
     def screen_stalled(self, frame, need=3):
         """연속 정지 프레임으로 ATS 멈춤을 판정한다(한 번으로 오판 금지)."""
@@ -346,6 +393,9 @@ def main():
                 break
             message = bot.step()
             logging.info("[%s] %s", bot.state, message)
+            if bot.state == "END":
+                logging.info("END 도달: 사이클 루프 종료")
+                break
             time.sleep(args.interval)
     finally:
         window.close()
