@@ -294,7 +294,8 @@ class CycleBot:
         hp = view["hp"]
         cfg = self.cfg
         # L0가 먼저 떨어져 마을에 있으면(ATS 자체 귀환) 원인 추론으로 RETURN.
-        if view["safe_zone"]:
+        # 마을 감지: zone 텍스트가 없는 이 UI에선 저HP 관측 후 풀HP 회복 지속.
+        if self._town_signal(view):
             self.return_reason = self.infer_return_reason(view)
             return "RETURN", f"ATS 자체 귀환 감지(추정 원인={self.return_reason})"
         if hp == 0:
