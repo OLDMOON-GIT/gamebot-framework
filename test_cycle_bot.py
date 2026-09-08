@@ -57,10 +57,10 @@ def make_bot(**overrides):
 
 
 def view(hp=1.0, safe=False):
-    """analyze() 반환 스키마와 동일한 목(mock) 뷰."""
-    return {"hp": hp, "safe_zone": safe,
-            "zone": "safe" if safe else "combat",
-            "ready": (not safe) and hp not in (None, 0),
+    """analyze() 반환 스키마와 동일한 목(mock) 뷰(마을이어도 ready=True)."""
+    zone = "safe" if safe else "combat"
+    return {"hp": hp, "safe_zone": safe, "zone": zone,
+            "ready": hp not in (None, 0) and zone != "unknown",
             "reason": "test", "_frame": None}
 
 
@@ -120,15 +120,26 @@ class TownTests(IsolatedLogCase):
             bot.step()
         self.assertEqual(bot.state, "END")
 
-    def test_ats_time_zero_with_charge_continues(self):
-        """톱니바퀴 충전 좌표가 있으면 충전 시도 후 계속."""
+    def test_ats_time_zero_charge_succeeds_when_time_increases(self):
+        """충전 후 재판독에서 잔여가 증가해야만 계속한다."""
         bot, win = make_bot(ats_time_reader=[1, 2, 3, 4],
                             ats_charge_clicks=[[10, 10]])
+        reads = iter([0, 60])
         with patch_view(view(1.0, safe=True)), \
-                patch.object(CycleBot, "ats_time_left", lambda self, v: 0):
+                patch.object(CycleBot, "ats_time_left",
+                             lambda self, v: next(reads)):
             bot.step()
         self.assertEqual(bot.state, "SUPPLY")
         self.assertIn((10, 10), win.clicks)
+
+    def test_ats_time_zero_charge_failure_ends_immediately(self):
+        """충전해도 잔여 0이면 즉시 END(거짓 성공 금지)."""
+        bot, _ = make_bot(ats_time_reader=[1, 2, 3, 4],
+                          ats_charge_clicks=[[10, 10]])
+        with patch_view(view(1.0, safe=True)), \
+                patch.object(CycleBot, "ats_time_left", lambda self, v: 0):
+            bot.step()
+        self.assertEqual(bot.state, "END")
 
 
 class SupplySelectTests(IsolatedLogCase):
@@ -438,7 +449,7 @@ class ReviewMajorFollowupTests(IsolatedLogCase):
         self.assertEqual(bot.state, "END")
 
     def test_dead_view_does_not_loop_forever(self):
-        """사망(hp=0) RETURN은 주문서 없이 대기하다 20회에 END로 빠진다."""
+        """hp=0 방어 경로: 주문서 없이 대기 20회 후 END(프로덕션은 hp=None 경로)."""
         bot, win = make_bot()
         bot.current_ground = "A터"
         bot.hunt_started = time.monotonic() - 60
@@ -515,6 +526,38 @@ class LoopGuardTests(IsolatedLogCase):
         with patch_view(blocked):
             bot.step()
         self.assertEqual(bot.state, "END")
+
+
+class ReverifyFixTests(IsolatedLogCase):
+    """재리뷰가 잡은 미해결/오판 수정 확인."""
+
+    def test_field_ok_rejects_village_even_ready(self):
+        village = view(1.0, safe=True)
+        self.assertTrue(village["ready"])
+        self.assertFalse(CycleBot.field_ok(village))
+
+    def test_return_does_not_use_scroll_in_village(self):
+        """마을 도착 상태의 RETURN은 주문서를 쓰지 않는다."""
+        bot, win = make_bot()
+        bot.current_ground = "A터"
+        bot.hunt_started = time.monotonic() - 60
+        bot.state = "RETURN"
+        bot.return_reason = "potion_preempt"
+        with patch_view(view(1.0, safe=True)):
+            bot.step()
+        self.assertEqual(bot.state, "TOWN")
+        self.assertEqual(win.clicks, [])
+
+    def test_unknown_zone_waits_not_return(self):
+        """zone 판독 실패(unknown)는 필드로 오판해 RETURN 가지 않는다."""
+        bot, win = make_bot()
+        unknown = view(1.0, safe=True)
+        unknown["zone"] = "unknown"
+        bot.state = "TOWN"
+        with patch_view(unknown):
+            bot.step()
+        self.assertEqual(bot.state, "TOWN")
+        self.assertEqual(win.clicks, [])
 
 
 if __name__ == "__main__":
