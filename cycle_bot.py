@@ -86,8 +86,26 @@ class CycleBot:
     def click(self, x, y, hover=0.0):
         if x is None or y is None:
             raise ValueError("미실측(null) 좌표로 터치를 낼 수 없습니다")
+        self.wait_user_idle()
         geo = self.window.geometry()
         self.window.click(x, y, geo, hover=hover)
+
+    @staticmethod
+    def wait_user_idle(timeout=120.0):
+        """사용자가 마우스/창을 쓰고 있으면 터치를 양보한다(포커스 충돌 방지).
+
+        CDP 터치는 포인터를 움직이지 않으므로 포인터 이동=사용자 입력과
+        완벽히 구분된다. 사용자가 계속 쓰면 timeout까지 기다린다.
+        """
+        from user_gate import user_active
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not user_active():
+                return True
+            logging.info("사용자 조작 감지: 터치 양보 대기")
+            time.sleep(2.0)
+        logging.warning("양보 대기 시간 초과: 사용자 조작이 계속됨")
+        return False
 
     # --- L2 액션 게이트: 판독이 확정되지 않으면 터치를 내지 않는다 ---
     def village_ok(self, view):

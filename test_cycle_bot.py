@@ -14,6 +14,8 @@ from cycle_bot import CycleBot
 
 class FakeWindow:
     def __init__(self):
+        import os
+        os.environ["LINC_SKIP_USER_GATE"] = "1"  # 테스트는 양보 게이트 스킵
         self.clicks = []
         self.hotkeys = []
 
