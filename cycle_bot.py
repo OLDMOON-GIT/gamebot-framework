@@ -64,7 +64,6 @@ class CycleBot:
         self._stall_count = 0
         self._move_attempts = 0
         self._last_potions = None
-        self._charge_failures = 0
         self._dead_waits = 0
         self._return_attempts = 0
         self._blocked_since = None
@@ -98,9 +97,13 @@ class CycleBot:
 
     @staticmethod
     def field_ok(view):
-        """필드 조작(ATS/주문서) 가능: analyze의 ready 게이트를 그대로 쓴다."""
+        """필드 조작(ATS/주문서) 가능: ready + 실제 필드(zone != safe).
+
+        analyze는 마을 안전 구역이어도 ready=True를 유지하므로 위치
+        검증을 여기서 겹쳐야 한다 — 없으면 마을에서 주문서를 낭비한다.
+        """
         return (view is not None and view.get("hp") not in (None, 0)
-                and view.get("ready") is True)
+                and view.get("ready") is True and view.get("zone") != "safe")
 
     def grounds(self):
         """당일 제외를 제외한 현재 사냥터 목록(우선순위순)."""
@@ -127,7 +130,7 @@ class CycleBot:
     # --- 상태 동작 ---
     def run_town(self, view):
         """마을 대기: 위치 확인 + ATS 잔여 확인(0이면 END)."""
-        if view is None or view["hp"] is None:
+        if view is None or view["hp"] is None or view.get("zone") == "unknown":
             return self._wait_unreadable("TOWN")
         if view["hp"] == 0:
             self.return_reason = "hp_danger"
@@ -187,10 +190,7 @@ class CycleBot:
         time.sleep(2.0)
         view = self.read()
         after = self.ats_time_left(view) if view else None
-        if after is not None and after > 0:
-            return True
-        self._charge_failures += 1
-        return self._charge_failures < 2  # 2회 실패면 더 시도하지 않는다(END로)
+        return after is not None and after > 0
 
     def run_supply(self, view):
         """보급: 소모품 목표 수량 확보 전에는 출발 금지."""
