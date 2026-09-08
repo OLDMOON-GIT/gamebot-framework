@@ -1,9 +1,9 @@
 {
   "potion_hp": 0.65,
-  "danger_hp": 0.5,
-  "danger_seconds": 8,
+  "danger_hp": 0.4,
   "hunt_minutes": 150,
-  "min_potions": 50,
+  "potion_reserve": 50,
+  "ats_potion": true,
   "quickslot_potion": [
     1590,
     1255
@@ -16,10 +16,7 @@
     1500,
     1300
   ],
-  "inventory_button": [
-    1830,
-    1300
-  ],
+  "inventory_button": null,
   "ats_clicks": [
     [
       1730,
@@ -34,7 +31,10 @@
       850
     ]
   ],
-  "buff_clicks": [],
+  "ats_setup_clicks": [],
+  "ats_time_reader": null,
+  "ats_charge_clicks": null,
+  "quickslot_potion_count_rect": null,
   "hunting_grounds": [
     {
       "name": "1순위 사냥터",
@@ -64,6 +64,5 @@
       ]
     }
   ],
-  "_note": "scroll_path/return_scroll/inventory_button는 봇 크롬 게임 진입 후 실측해 교체",
-  "ats_potion": true
+  "_note": "설계 v2. null 필드(inventory_button/ats_time_reader/ats_charge_clicks/quickslot_potion_count_rect)는 봇 크롬 게임 진입 후 실측해 채운다. null이면 해당 기능은 비활성(터치 없음)이고 ATS 내장 안전장치(L0)가 동작한다."
 }

@@ -1,5 +1,11 @@
-"""사이클 봇 상태 전이 검증 — 사용자 설계(2026-09-08) 규칙 중심."""
+"""사이클 봇 v2 상태 전이 검증 — 설계 v2(2026-09-08) 규칙 중심.
+
+전투는 ATS에 위임하고 관리자 로직(예방 귀환/당일 제외/원인 판별)만 검증한다.
+"""
+import json
+import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import cycle_bot
@@ -9,13 +15,13 @@ from cycle_bot import CycleBot
 class FakeWindow:
     def __init__(self):
         self.clicks = []
-        self.active_flag = True
+        self.hotkeys = []
 
     def active(self):
-        return self.active_flag
+        return True
 
     def capture(self):
-        import numpy as np, cv2
+        import numpy as np
         return np.zeros((1332, 1933, 3), dtype=np.uint8)
 
     def geometry(self):
@@ -24,154 +30,243 @@ class FakeWindow:
     def click(self, x, y, geo, hover=0.0):
         self.clicks.append((x, y))
 
+    def hotkey(self, combo):
+        self.hotkeys.append(combo)
+
     def close(self):
         pass
 
 
-def make_bot(hp=None, safe=False):
+def make_bot(**overrides):
     win = FakeWindow()
     cfg = {
-        "potion_hp": 0.65, "danger_hp": 0.50, "danger_seconds": 8,
-        "hunt_minutes": 150, "quickslot_potion": [1590, 1255],
-        "return_scroll": [100, 100], "scroll_button": [200, 200],
-        "ats_clicks": [[1, 1], [2, 2], [3, 3]], "buff_clicks": [],
+        "potion_hp": 0.65, "danger_hp": 0.40, "hunt_minutes": 150,
+        "potion_reserve": 50,
+        "quickslot_potion": [1590, 1255], "return_scroll": [100, 100],
+        "scroll_button": [200, 200], "ats_clicks": [[1, 1], [2, 2], [3, 3]],
+        "ats_setup_clicks": [], "buff_clicks": [],
         "hunting_grounds": [
             {"name": "A터", "scroll_path": [[9, 9]]},
             {"name": "B터", "scroll_path": [[8, 8]]},
         ],
     }
+    cfg.update(overrides)
     bot = CycleBot(win, cfg)
     bot._window = win
-    view = {"hp": hp, "safe_zone": safe, "reason": "test", "_frame": None}
-    return bot, win, view
+    return bot, win
 
 
-def patch_view(view, alive=True):
-    return patch.object(CycleBot, "read", lambda self: view if alive else None)
+def view(hp=1.0, safe=False):
+    return {"hp": hp, "safe_zone": safe, "reason": "test", "_frame": None}
 
 
-class StateMachineTests(unittest.TestCase):
-    def test_boot_unreadable_stays(self):
-        """판독 불가 = 모르는 화면 = 정지: BOOT 유지, 클릭 없음."""
-        bot, win, _ = make_bot()
-        with patch_view(None, alive=False):
-            msg = bot.step()
-        self.assertEqual(bot.state, "BOOT")
+def patch_view(v):
+    return patch.object(CycleBot, "read", lambda self: v)
+
+
+class TownTests(unittest.TestCase):
+    def test_unreadable_stops(self):
+        """판독 불가 = 모르는 화면 = 정지: TOWN 유지, 클릭 없음."""
+        bot, win = make_bot()
+        with patch_view(None):
+            bot.step()
+        self.assertEqual(bot.state, "TOWN")
         self.assertEqual(win.clicks, [])
 
-    def test_boot_dead_to_recover(self):
-        bot, win, _ = make_bot(hp=0)
-        with patch_view({"hp": 0, "safe_zone": False, "_frame": None}):
+    def test_dead_goes_return_with_reason(self):
+        bot, _ = make_bot()
+        with patch_view(view(0)):
             bot.step()
-        self.assertEqual(bot.state, "RECOVER")
+        self.assertEqual(bot.state, "RETURN")
+        self.assertEqual(bot.return_reason, "hp_danger")
 
-    def test_boot_village_to_supply(self):
-        bot, win, _ = make_bot(hp=1.0, safe=True)
-        with patch_view({"hp": 1.0, "safe_zone": True, "_frame": None}):
+    def test_village_goes_supply(self):
+        bot, _ = make_bot()
+        with patch_view(view(1.0, safe=True)):
             bot.step()
         self.assertEqual(bot.state, "SUPPLY")
 
-    def test_boot_field_to_retreat(self):
-        bot, win, _ = make_bot(hp=0.9, safe=False)
-        with patch_view({"hp": 0.9, "safe_zone": False, "_frame": None}):
+    def test_field_goes_return(self):
+        bot, _ = make_bot()
+        with patch_view(view(0.9)):
             bot.step()
-        self.assertEqual(bot.state, "RETREAT")
+        self.assertEqual(bot.state, "RETURN")
 
+    def test_ats_time_zero_ends_without_charge(self):
+        """ATS 잔여 0 + 충전 수단 없음 → END(오늘 종료)."""
+        bot, _ = make_bot(ats_time_reader=[1, 2, 3, 4])
+        with patch_view(view(1.0, safe=True)), \
+                patch.object(CycleBot, "ats_time_left", lambda self, v: 0):
+            bot.step()
+        self.assertEqual(bot.state, "END")
+
+    def test_ats_time_zero_with_charge_continues(self):
+        """톱니바퀴 충전 좌표가 있으면 충전 시도 후 계속."""
+        bot, win = make_bot(ats_time_reader=[1, 2, 3, 4],
+                            ats_charge_clicks=[[10, 10]])
+        with patch_view(view(1.0, safe=True)), \
+                patch.object(CycleBot, "ats_time_left", lambda self, v: 0):
+            bot.step()
+        self.assertEqual(bot.state, "SUPPLY")
+        self.assertIn((10, 10), win.clicks)
+
+
+class SupplySelectTests(unittest.TestCase):
     def test_supply_without_inventory_waits(self):
         """인벤 좌표 미실측이면 터치 없이 대기(사람 보급)."""
-        bot, win, _ = make_bot(hp=1.0, safe=True)
+        bot, win = make_bot()
         bot.state = "SUPPLY"
-        with patch_view({"hp": 1.0, "safe_zone": True, "_frame": None}):
+        with patch_view(view(1.0, safe=True)):
             bot.step()
         self.assertEqual(bot.state, "SUPPLY")
         self.assertEqual(win.clicks, [])
-
-    def test_hunt_low_hp_clicks_potion_when_not_delegated(self):
-        """ATS 물약 위임이 아니면 저체력에 봇이 직접 누른다."""
-        bot, win, _ = make_bot(hp=0.5)
-        bot.cfg["ats_potion"] = False
-        bot.state = "HUNT"
-        with patch_view({"hp": 0.5, "safe_zone": False, "_frame": None}):
-            bot.step()
-        self.assertIn((1590, 1255), win.clicks)
-
-    def test_hunt_low_hp_delegates_to_ats_by_default(self):
-        """기본은 ATS에 물약을 맡긴다: 저체력이어도 퀵슬롯 클릭 없음."""
-        bot, win, _ = make_bot(hp=0.5)
-        bot.state = "HUNT"
-        with patch_view({"hp": 0.5, "safe_zone": False, "_frame": None}):
-            bot.step()
-        self.assertNotIn((1590, 1255), win.clicks)
-
-    def test_hunt_survival_first_retreat(self):
-        """HP<50% 지속 + 물약 무효 → 생존 우선 귀환(RETREAT)."""
-        bot, win, _ = make_bot(hp=0.4)
-        bot.state = "HUNT"
-        bot.hp_low_since = -100  # 이미 오래 지속
-        bot.last_potion_effective = False
-        with patch_view({"hp": 0.4, "safe_zone": False, "_frame": None}):
-            bot.step()
-        self.assertEqual(bot.state, "RETREAT")
-
-    def test_hunt_time_over_moves_next_ground(self):
-        bot, win, _ = make_bot(hp=0.9)
-        bot.state = "HUNT"
-        bot.hunt_started = -100000
-        with patch_view({"hp": 0.9, "safe_zone": False, "_frame": None}):
-            bot.step()
-        self.assertEqual(bot.state, "RETREAT")
-        self.assertEqual(bot.ground_idx, 1)
-
-    def test_retreat_home_then_supply_and_log(self):
-        bot, win, _ = make_bot(hp=0.9)
-        bot.state = "RETREAT"
-        bot.hunt_started = -60
-        import cycle_bot as cb, json
-        with patch_view({"hp": 1.0, "safe_zone": True, "_frame": None}):
-            bot.step()
-        self.assertEqual(bot.state, "SUPPLY")
-        line = json.loads(cb.LOG_PATH.read_text(encoding="utf-8").strip().splitlines()[-1])
-        self.assertEqual(line["ground"], "A터")
-
-    def test_recover_double_death_demotes_ground(self):
-        bot, win, _ = make_bot(hp=0)
-        bot.state = "RECOVER"
-        with patch_view({"hp": 0, "safe_zone": False, "_frame": None}):
-            bot.step()
-            bot.state = "RECOVER"
-            bot.step()
-        self.assertEqual(bot.ground_idx, 1)
 
     def test_supply_reranks_grounds_from_log(self):
         """사냥 기록이 있으면 SUPPLY에서 우선순위가 재배열된다(설계 13번)."""
-        import json, time
-        from pathlib import Path
         log = Path(__file__).parent / "hunt_log.jsonl"
         keep = log.read_text(encoding="utf-8") if log.exists() else ""
         try:
             with log.open("a", encoding="utf-8") as sink:
-                sink.write(json.dumps({"t": time.time(), "ground": "A터",
-                                       "minutes": 60, "potions": 600,
-                                       "death": True}) + "\n")
-            bot, win, _ = make_bot(hp=1.0, safe=True)
+                sink.write(json.dumps({"t": time.time(), "date": bot_date(),
+                                       "ground": "A터", "minutes": 60,
+                                       "potions": 600, "death": True}) + "\n")
+            bot, _ = make_bot(inventory_button=[55, 55])
             bot.state = "SUPPLY"
-            with patch_view({"hp": 1.0, "safe_zone": True, "_frame": None}):
+            with patch_view(view(1.0, safe=True)):
                 bot.step()
             names = [g["name"] for g in bot.cfg["hunting_grounds"]]
             self.assertEqual(names[0], "B터")
         finally:
-            if keep:
-                log.write_text(keep, encoding="utf-8")
-            elif log.exists():
-                log.unlink()
+            restore_log(log, keep)
 
-    def test_travel_arrival_starts_hunt(self):
-        bot, win, _ = make_bot(hp=1.0, safe=False)
-        bot.state = "TRAVEL"
-        with patch_view({"hp": 1.0, "safe_zone": False, "_frame": None}):
+    def test_select_hunt_picks_priority_ground(self):
+        bot, _ = make_bot()
+        bot.state = "SELECT_HUNT"
+        with patch_view(view(1.0, safe=True)):
             bot.step()
-        self.assertEqual(bot.state, "HUNT")
-        self.assertGreater(bot.hunt_started, 0)
+        self.assertEqual(bot.state, "MOVE")
+        self.assertEqual(bot.current_ground, "A터")
+
+    def test_select_hunt_empty_after_exclusion_ends(self):
+        """당일 제외로 남은 사냥터가 없으면 END."""
+        bot, _ = make_bot()
+        import datetime as dt
+        today = dt.date.today().isoformat()
+        bot.excluded = {today: {"A터": "테스트", "B터": "테스트"}}
+        bot.state = "SELECT_HUNT"
+        with patch_view(view(1.0, safe=True)):
+            bot.step()
+        self.assertEqual(bot.state, "END")
+
+
+class MoveHuntTests(unittest.TestCase):
+    def test_move_arrival_starts_ats_once(self):
+        """도착 → ATS_HUNT 진입 시 ATS 시작 클릭이 정확히 1회 세트."""
+        bot, win = make_bot()
+        bot.state = "MOVE"
+        with patch_view(view(1.0)):
+            bot.step()   # MOVE → ATS_HUNT 전이
+            bot.step()   # 첫 감시 스텝에서 ATS 시작
+        self.assertEqual(bot.state, "ATS_HUNT")
+        for x, y in bot.cfg["ats_clicks"]:
+            self.assertIn((x, y), win.clicks)
+        self.assertTrue(bot._ats_started)
+
+    def test_ats_hunt_no_repeat_start(self):
+        """이미 시작된 ATS는 재시작 클릭을 반복하지 않는다."""
+        bot, win = make_bot()
+        bot.state = "ATS_HUNT"
+        bot._ats_started = True
+        bot.hunt_started = time.monotonic()
+        for _ in range(3):
+            with patch_view(view(0.9)):
+                bot.step()
+        self.assertEqual(bot.state, "ATS_HUNT")
+        self.assertEqual(win.clicks, [])
+
+    def test_ats_self_return_inferred_by_low_hp(self):
+        """ATS 자체 귀환(마을 복귀) 감지 → 원인 추론 hp_danger → RETURN."""
+        bot, _ = make_bot()
+        bot.state = "ATS_HUNT"
+        bot.current_ground = "A터"
+        bot.hunt_started = time.monotonic() - 60
+        with patch_view(view(0.42, safe=True)):
+            bot.step()
+        self.assertEqual(bot.state, "RETURN")
+        self.assertEqual(bot.return_reason, "hp_danger")
+
+    def test_ats_self_return_inferred_idle(self):
+        """HP 풀로 돌아오면 비전투 귀환으로 추론한다."""
+        bot, _ = make_bot()
+        bot.state = "ATS_HUNT"
+        with patch_view(view(1.0, safe=True)):
+            bot.step()
+        self.assertEqual(bot.return_reason, "idle_no_combat")
+
+    def test_potion_reserve_triggers_preemptive_return(self):
+        """L1: 주홍 안전재고 이하 → 예방 귀환(potion_preempt)."""
+        bot, _ = make_bot()
+        bot.state = "ATS_HUNT"
+        bot._ats_started = True
+        with patch_view(view(0.9)), \
+                patch.object(CycleBot, "quickslot_potions", lambda self, v: 30):
+            bot.step()
+        self.assertEqual(bot.state, "RETURN")
+        self.assertEqual(bot.return_reason, "potion_preempt")
+
+    def test_hunt_time_over_moves_next_ground(self):
+        bot, _ = make_bot()
+        bot.state = "ATS_HUNT"
+        bot._ats_started = True
+        bot.hunt_started = -100000
+        with patch_view(view(0.9)):
+            bot.step()
+        self.assertEqual(bot.state, "RETURN")
+        self.assertEqual(bot.ground_idx, 1)
+        self.assertEqual(bot.return_reason, "ats_time_over")
+
+
+class ReturnTests(unittest.TestCase):
+    def test_double_emergency_excludes_ground_today(self):
+        """긴급귀환 2회 → 해당 사냥터 당일 제외 + 다음 사냥터."""
+        bot, _ = make_bot()
+        bot.current_ground = "A터"
+        bot.hunt_started = time.monotonic() - 60
+        bot.state = "RETURN"
+        bot.return_reason = "hp_danger"
+        with patch_view(view(1.0, safe=True)):
+            bot.step()
+            bot.state = "RETURN"
+            bot.return_reason = "hp_danger"
+            bot.step()
+        self.assertIn("A터", bot.excluded.get(bot.today, {}))
+        self.assertEqual(bot.ground_idx, 1)
+
+    def test_return_logs_reason(self):
+        bot, _ = make_bot()
+        bot.current_ground = "A터"
+        bot.hunt_started = time.monotonic() - 120
+        bot.state = "RETURN"
+        bot.return_reason = "potion_preempt"
+        with patch_view(view(1.0, safe=True)):
+            bot.step()
+        self.assertEqual(bot.state, "TOWN")
+        line = json.loads(cycle_bot.LOG_PATH.read_text(
+            encoding="utf-8").strip().splitlines()[-1])
+        self.assertEqual(line["reason"], "potion_preempt")
+        self.assertEqual(line["ground"], "A터")
+
+
+def bot_date():
+    import datetime as dt
+    return dt.date.today().isoformat()
+
+
+def restore_log(log, keep):
+    if keep:
+        log.write_text(keep, encoding="utf-8")
+    elif log.exists():
+        log.unlink()
 
 
 if __name__ == "__main__":

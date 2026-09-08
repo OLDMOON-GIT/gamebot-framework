@@ -128,6 +128,27 @@ class CdpWindow:
         self.send("Input.dispatchKeyEvent", {**common, "type": "keyDown"})
         self.send("Input.dispatchKeyEvent", {**common, "type": "keyUp"})
 
+    def hotkey(self, combo):
+        """Alt+W/Alt+G 조합 키를 게임에 전달한다(ATS 설정/시작).
+
+        CDP modifiers 비트: Alt=1, Ctrl=2, Meta=4, Shift=8. 웹플레이가 이
+        경로를 소비할지는 미실측이라, 호출부는 클릭 폴백을 함께 둔다.
+        """
+        parts = [p.strip() for p in combo.split("+")]
+        key = parts[-1].lower()
+        if not key.isalnum() or len(key) != 1:
+            raise ValueError("조합 키는 한 글자 알파벳만 지원합니다")
+        modifiers = 0
+        for modifier in parts[:-1]:
+            modifiers += {"alt": 1, "ctrl": 2, "control": 2,
+                          "shift": 8, "meta": 4}.get(modifier.lower(), 0)
+        code = "Key" + key.upper()
+        vk = ord(key.upper())
+        common = {"key": key, "code": code, "windowsVirtualKeyCode": vk,
+                  "nativeVirtualKeyCode": vk, "modifiers": modifiers}
+        self.send("Input.dispatchKeyEvent", {**common, "type": "keyDown"})
+        self.send("Input.dispatchKeyEvent", {**common, "type": "keyUp"})
+
     def close(self):
         try:
             self.ws.close()

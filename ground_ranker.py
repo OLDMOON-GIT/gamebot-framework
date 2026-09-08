@@ -27,12 +27,15 @@ def rank_grounds(records, *, recent_days=3):
         name = record.get("ground")
         if not name:
             continue
+        # v2 로그 스키마: death 대신 reason(hp_danger) + emergency 횟수.
+        danger = bool(record.get("death")) or record.get("reason") == "hp_danger"
         score = 0.0
-        if record.get("death"):
+        if danger:
             score += 5
+        score += 2 * record.get("emergency", 0)
         minutes = max(0.1, record.get("minutes", 0))
         score += 2 * record.get("potions", 0) / minutes
-        if not record.get("death") and minutes >= 5:
+        if not danger and minutes >= 5:
             score -= 1
         scores[name].append(score)
     return {name: round(sum(vals) / len(vals), 2) for name, vals in scores.items()}
