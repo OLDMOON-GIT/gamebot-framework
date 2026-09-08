@@ -101,7 +101,7 @@ class TownTests(IsolatedLogCase):
         self.assertEqual(bot.return_reason, "hp_danger")
 
     def test_village_goes_supply(self):
-        bot, _ = make_bot()
+        bot, _ = make_bot(start_in_town=True)
         with patch_view(view(1.0, safe=True)):
             bot.step()
         self.assertEqual(bot.state, "SUPPLY")
@@ -113,8 +113,7 @@ class TownTests(IsolatedLogCase):
         self.assertEqual(bot.state, "RETURN")
 
     def test_ats_time_zero_ends_without_charge(self):
-        """ATS 잔여 0 + 충전 수단 없음 → END(오늘 종료)."""
-        bot, _ = make_bot(ats_time_reader=[1, 2, 3, 4])
+        bot, _ = make_bot(start_in_town=True, ats_time_reader=[1, 2, 3, 4])
         with patch_view(view(1.0, safe=True)), \
                 patch.object(CycleBot, "ats_time_left", lambda self, v: 0):
             bot.step()
@@ -122,7 +121,7 @@ class TownTests(IsolatedLogCase):
 
     def test_ats_time_zero_charge_succeeds_when_time_increases(self):
         """충전 후 재판독에서 잔여가 증가해야만 계속한다."""
-        bot, win = make_bot(ats_time_reader=[1, 2, 3, 4],
+        bot, win = make_bot(start_in_town=True, ats_time_reader=[1, 2, 3, 4],
                             ats_charge_clicks=[[10, 10]])
         reads = iter([0, 60])
         with patch_view(view(1.0, safe=True)), \
@@ -134,7 +133,7 @@ class TownTests(IsolatedLogCase):
 
     def test_ats_time_zero_charge_failure_ends_immediately(self):
         """충전해도 잔여 0이면 즉시 END(거짓 성공 금지)."""
-        bot, _ = make_bot(ats_time_reader=[1, 2, 3, 4],
+        bot, _ = make_bot(start_in_town=True, ats_time_reader=[1, 2, 3, 4],
                           ats_charge_clicks=[[10, 10]])
         with patch_view(view(1.0, safe=True)), \
                 patch.object(CycleBot, "ats_time_left", lambda self, v: 0):
@@ -144,8 +143,7 @@ class TownTests(IsolatedLogCase):
 
 class SupplySelectTests(IsolatedLogCase):
     def test_supply_without_inventory_waits(self):
-        """인벤 좌표 미실측이면 터치 없이 대기(사람 보급)."""
-        bot, win = make_bot()
+        bot, win = make_bot(start_in_town=True)
         bot.state = "SUPPLY"
         with patch_view(view(1.0, safe=True)):
             bot.step()
@@ -161,7 +159,7 @@ class SupplySelectTests(IsolatedLogCase):
                 sink.write(json.dumps({"t": time.time(), "date": bot_date(),
                                        "ground": "A터", "minutes": 60,
                                        "potions": 600, "death": True}) + "\n")
-            bot, _ = make_bot(inventory_button=[55, 55])
+            bot, _ = make_bot(start_in_town=True, inventory_button=[55, 55])
             bot.state = "SUPPLY"
             with patch_view(view(1.0, safe=True)):
                 bot.step()
@@ -171,7 +169,7 @@ class SupplySelectTests(IsolatedLogCase):
             restore_log(log, keep)
 
     def test_select_hunt_picks_priority_ground(self):
-        bot, _ = make_bot()
+        bot, _ = make_bot(start_in_town=True)
         bot.state = "SELECT_HUNT"
         with patch_view(view(1.0, safe=True)):
             bot.step()
@@ -179,8 +177,7 @@ class SupplySelectTests(IsolatedLogCase):
         self.assertEqual(bot.current_ground, "A터")
 
     def test_select_hunt_empty_after_exclusion_ends(self):
-        """당일 제외로 남은 사냥터가 없으면 END."""
-        bot, _ = make_bot()
+        bot, _ = make_bot(start_in_town=True)
         import datetime as dt
         today = dt.date.today().isoformat()
         bot.excluded = {today: {"A터": "테스트", "B터": "테스트"}}
@@ -193,7 +190,7 @@ class SupplySelectTests(IsolatedLogCase):
 class MoveHuntTests(IsolatedLogCase):
     def test_move_arrival_starts_ats_once(self):
         """도착 → ATS_HUNT 진입 시 ATS 시작 클릭이 정확히 1회 세트."""
-        bot, win = make_bot()
+        bot, win = make_bot(start_in_town=True)
         bot.state = "MOVE"
         seq = iter([view(1.0, safe=True), view(1.0), view(1.0)])
         with patch.object(CycleBot, "read", lambda self: next(seq)):
@@ -217,23 +214,29 @@ class MoveHuntTests(IsolatedLogCase):
         self.assertEqual(win.clicks, [])
 
     def test_ats_self_return_inferred_by_low_hp(self):
-        """ATS 자체 귀환(마을 복귀) 감지 → 원인 추론 hp_danger → RETURN."""
+        """ATS 자체 귀환 감지(저HP 관측 후 풀HP 지속) → hp_danger."""
         bot, _ = make_bot()
         bot.state = "ATS_HUNT"
         bot.current_ground = "A터"
         bot.hunt_started = time.monotonic() - 60
-        with patch_view(view(0.42, safe=True)):
-            bot.step()
+        seq = iter([view(0.42), view(0.97), view(0.98), view(0.99), view(1.0)])
+        with patch.object(CycleBot, "read", lambda self: next(seq, view(1.0))):
+            for _ in range(6):
+                if bot.state == "RETURN":
+                    break
+                bot.step()
         self.assertEqual(bot.state, "RETURN")
         self.assertEqual(bot.return_reason, "hp_danger")
 
     def test_ats_self_return_inferred_idle(self):
-        """HP 풀로 돌아오면 비전투 귀환으로 추론한다."""
+        """저HP 없이 풀HP만 지속되면 귀환 신호가 아니다(비전투 오탐 방지)."""
         bot, _ = make_bot()
         bot.state = "ATS_HUNT"
-        with patch_view(view(1.0, safe=True)):
-            bot.step()
-        self.assertEqual(bot.return_reason, "idle_no_combat")
+        bot.hunt_started = time.monotonic()
+        with patch_view(view(1.0)):
+            for _ in range(4):
+                bot.step()
+        self.assertEqual(bot.state, "ATS_HUNT")
 
     def test_potion_reserve_triggers_preemptive_return(self):
         """L1: 주홍 안전재고 이하 → 예방 귀환(potion_preempt)."""
@@ -399,8 +402,7 @@ class ReviewGateTests(IsolatedLogCase):
         self.assertEqual(win.clicks, [])
 
     def test_supply_requires_assume_supplied_flag(self):
-        """인벤 좌표가 있어도 사람 확인 신호 없으면 출발하지 않는다."""
-        bot, win = make_bot(inventory_button=[55, 55])
+        bot, win = make_bot(start_in_town=True, inventory_button=[55, 55])
         bot.state = "SUPPLY"
         with patch.object(CycleBot, "read",
                           side_effect=[view(1.0, safe=True), view(1.0, safe=True)]):
@@ -410,7 +412,7 @@ class ReviewGateTests(IsolatedLogCase):
 
     def test_ats_restarts_on_second_cycle(self):
         """다음 사냥터 도착 시 _ats_started가 리셋되어 ATS가 다시 시작된다."""
-        bot, win = make_bot()
+        bot, win = make_bot(start_in_town=True)
         bot.state = "MOVE"
         bot._ats_started = True  # 이전 사냥터에서 켜져 있던 상태
         seq = iter([view(1.0, safe=True), view(1.0), view(1.0)])
@@ -441,7 +443,7 @@ class ReviewMajorFollowupTests(IsolatedLogCase):
     def test_move_with_empty_pool_ends(self):
         """당일 제외로 pool이 빈 상태의 MOVE는 크래시 없이 END."""
         import datetime as dt
-        bot, _ = make_bot()
+        bot, _ = make_bot(start_in_town=True)
         bot.excluded = {dt.date.today().isoformat(): {"A터": "x", "B터": "x"}}
         bot.state = "MOVE"
         with patch_view(view(1.0, safe=True)):
@@ -537,8 +539,7 @@ class ReverifyFixTests(IsolatedLogCase):
         self.assertFalse(CycleBot.field_ok(village))
 
     def test_return_does_not_use_scroll_in_village(self):
-        """마을 도착 상태의 RETURN은 주문서를 쓰지 않는다."""
-        bot, win = make_bot()
+        bot, win = make_bot(start_in_town=True)
         bot.current_ground = "A터"
         bot.hunt_started = time.monotonic() - 60
         bot.state = "RETURN"
@@ -548,16 +549,15 @@ class ReverifyFixTests(IsolatedLogCase):
         self.assertEqual(bot.state, "TOWN")
         self.assertEqual(win.clicks, [])
 
-    def test_unknown_zone_waits_not_return(self):
-        """zone 판독 실패(unknown)는 필드로 오판해 RETURN 가지 않는다."""
-        bot, win = make_bot()
+    def test_move_blocked_when_zone_unknown(self):
+        """zone 판독 실패와 무관하게 in_town=False면 MOVE는 마을 게이트에 막힌다."""
+        bot, win = make_bot(start_in_town=False)
+        bot.state = "MOVE"
         unknown = view(1.0, safe=True)
         unknown["zone"] = "unknown"
-        bot.state = "TOWN"
         with patch_view(unknown):
             bot.step()
-        self.assertEqual(bot.state, "TOWN")
-        self.assertEqual(win.clicks, [])
+        self.assertEqual(bot.clicks if hasattr(bot, "clicks") else win.clicks, [])
 
 
 if __name__ == "__main__":
