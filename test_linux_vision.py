@@ -180,6 +180,30 @@ class VisionTests(unittest.TestCase):
         result = vision.analyze(cv2.imread("/tmp/purpleon-window.png"))
         # 구 X11 캡처: 캘리브레이션 갱신 후엔 몹 후보만 검증한다.
         self.assertEqual(result["mobs"], [])
+class ZoneAndOcrGuardTests(VisionTests):
+    """재리뷰 지적(리그레션 미고정) 반영 — zone 원값/OCR None 방어."""
+
+    def test_analyze_exposes_raw_zone_value(self):
+        """zone 원값(safe/combat/unknown)을 노출해 실패와 필드를 구분한다."""
+        for zone_text, expected in [("Safety zone", "safe"),
+                                    ("Normal zone", "combat"),
+                                    ("???", "unknown")]:
+            with (self.subTest(zone=zone_text),
+                  patch.object(vision, "ocr", side_effect=[
+                      "purpleon.plaync.com/webplay/linclassic", "HP71/71",
+                      "MP7/7", ""]),
+                  patch.object(vision, "zone_read", return_value=zone_text)):
+                result = vision.analyze(self.frame)
+            self.assertEqual(result["zone"], expected)
+
+    def test_zone_default_is_unknown_before_reading(self):
+        """판독 실패 경로에서도 zone은 unknown으로 내려온다(기본값)."""
+        self.assertEqual(vision.analyze(self.frame)["zone"], "unknown")
+
+    def test_hud_digits_ocr_none_is_not_a_crash(self):
+        """OCR이 None을 반환해도 크래시 없이 None 비율을 낸다."""
+        with patch.object(vision, "ocr", return_value=None):
+            self.assertIsNone(vision.hp_from_hud_digits(self.frame))
 
 
 if __name__ == "__main__":
