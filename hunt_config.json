@@ -64,5 +64,7 @@
       ]
     }
   ],
-  "_note": "설계 v2. null 필드(inventory_button/ats_time_reader/ats_charge_clicks/quickslot_potion_count_rect)는 봇 크롬 게임 진입 후 실측해 채운다. null이면 해당 기능은 비활성(터치 없음)이고 ATS 내장 안전장치(L0)가 동작한다."
+  "_note": "설계 v2. null 필드(inventory_button/ats_time_reader/ats_charge_clicks/quickslot_potion_count_rect)는 봇 크롬 게임 진입 후 실측해 채운다. null이면 해당 기능은 비활성(터치 없음)이고 ATS 내장 안전장치(L0)가 동작한다.",
+  "assume_supplied": false,
+  "daily_hunt_cap_minutes": 180
 }

@@ -57,7 +57,11 @@ def make_bot(**overrides):
 
 
 def view(hp=1.0, safe=False):
-    return {"hp": hp, "safe_zone": safe, "reason": "test", "_frame": None}
+    """analyze() 반환 스키마와 동일한 목(mock) 뷰."""
+    return {"hp": hp, "safe_zone": safe,
+            "zone": "safe" if safe else "combat",
+            "ready": (not safe) and hp not in (None, 0),
+            "reason": "test", "_frame": None}
 
 
 def patch_view(v):
@@ -180,8 +184,9 @@ class MoveHuntTests(IsolatedLogCase):
         """도착 → ATS_HUNT 진입 시 ATS 시작 클릭이 정확히 1회 세트."""
         bot, win = make_bot()
         bot.state = "MOVE"
-        with patch_view(view(1.0)):
-            bot.step()   # MOVE → ATS_HUNT 전이
+        seq = iter([view(1.0, safe=True), view(1.0), view(1.0)])
+        with patch.object(CycleBot, "read", lambda self: next(seq)):
+            bot.step()   # 마을 확인 → 이동 → 도착 판정 → ATS_HUNT 전이
             bot.step()   # 첫 감시 스텝에서 ATS 시작
         self.assertEqual(bot.state, "ATS_HUNT")
         for x, y in bot.cfg["ats_clicks"]:
@@ -357,6 +362,66 @@ class HardenedRulesTests(IsolatedLogCase):
             bot.step()
             bot.step()
         self.assertEqual(bot.stats["potions"], 60)
+
+
+class ReviewGateTests(IsolatedLogCase):
+    """Claude 리뷰 CRIT 반영 검증 — 판독 미확정 시 터치가 나가지 않는다."""
+
+    def test_move_blocked_when_zone_unknown(self):
+        """zone 판독 실패(unknown) 상태에서는 두루마리 클릭이 없다."""
+        bot, win = make_bot()
+        bot.state = "MOVE"
+        unknown = view(1.0, safe=True)
+        unknown["zone"] = "unknown"
+        with patch_view(unknown):
+            bot.step()
+        self.assertEqual(win.clicks, [])
+
+    def test_ats_start_blocked_without_ready(self):
+        """ready 게이트 미통과(패널/차단)면 ATS 시작 클릭이 없다."""
+        bot, win = make_bot()
+        bot.state = "ATS_HUNT"
+        blocked = view(0.9)
+        blocked["ready"] = False  # analyze가 내보내는 입력 차단 상태
+        with patch_view(blocked):
+            bot.step()
+        self.assertEqual(win.clicks, [])
+
+    def test_supply_requires_assume_supplied_flag(self):
+        """인벤 좌표가 있어도 사람 확인 신호 없으면 출발하지 않는다."""
+        bot, win = make_bot(inventory_button=[55, 55])
+        bot.state = "SUPPLY"
+        with patch.object(CycleBot, "read",
+                          side_effect=[view(1.0, safe=True), view(1.0, safe=True)]):
+            bot.step()
+        self.assertEqual(bot.state, "SUPPLY")
+        self.assertEqual(win.clicks, [(55, 55)])  # 인벤 열기만, 진행 없음
+
+    def test_ats_restarts_on_second_cycle(self):
+        """다음 사냥터 도착 시 _ats_started가 리셋되어 ATS가 다시 시작된다."""
+        bot, win = make_bot()
+        bot.state = "MOVE"
+        bot._ats_started = True  # 이전 사냥터에서 켜져 있던 상태
+        seq = iter([view(1.0, safe=True), view(1.0), view(1.0)])
+        with patch.object(CycleBot, "read", lambda self: next(seq)):
+            bot.step()
+            self.assertFalse(bot._ats_started)  # 도착 시 리셋 확인
+            bot.step()
+        self.assertTrue(bot._ats_started)
+
+    def test_charge_failure_twice_ends(self):
+        """충전 2회 실패면 END(무한 충전 재시도 차단)."""
+        bot, _ = make_bot(ats_time_reader=[1, 2, 3, 4],
+                          ats_charge_clicks=[[10, 10]])
+        bot.state = "TOWN"
+        with patch_view(view(1.0, safe=True)), \
+                patch.object(CycleBot, "ats_time_left", lambda self, v: 0):
+            bot.step()  # 1차 충전 실패 — 아직 재시도
+            bot.state = "TOWN"
+            bot.step()  # 2차 실패
+            bot.state = "TOWN"
+            bot.step()  # END
+        self.assertEqual(bot.state, "END")
 
 
 if __name__ == "__main__":

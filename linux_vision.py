@@ -101,6 +101,8 @@ def hp_from_hud_digits(img):
     """
     current = ocr(crop(img, HP_CUR_RECT), whitelist="0123456789")
     maximum = ocr(crop(img, HP_MAX_RECT), whitelist="0123456789")
+    if not isinstance(current, str) or not isinstance(maximum, str):
+        return None  # OCR 실패(None) 시 추측하지 않는다
     if current.strip().isdigit() and maximum.strip().isdigit():
         low, high = int(current), int(maximum)
         if 0 < high and low <= high:
@@ -472,6 +474,7 @@ def analyze(img, target_profiles=None, *, require_url=True):
     profiles = validate_target_profiles(
         VERIFIED_TARGET_PROFILES if target_profiles is None else target_profiles)
     result = {"hp": None, "mp": None, "ready": False, "game_visible": False,
+              "zone": "unknown",
               "safe_zone": False, "mobs": [], "candidates": [],
               "reason": "화면 크기 불일치"}
     if img is None or img.ndim != 3 or img.shape[2] != 3:
@@ -496,6 +499,7 @@ def analyze(img, target_profiles=None, *, require_url=True):
         # 이동 전용 입력은 zone 판독과 무관하게 게임 화면 확인만으로 허용한다.
         result["game_visible"] = result["hp"] is not None and result["hp"] > 0
         zone = zone_kind(zone_read(img))
+        result["zone"] = zone  # safe/combat/unknown 원값 — 판독 실패와 필드를 구분
         result["safe_zone"] = zone == "safe"
         if result["hp"] is None:
             result["reason"] = "HP 판독 실패: 입력 차단"

@@ -64,6 +64,7 @@ class CycleBot:
         self._stall_count = 0
         self._move_attempts = 0
         self._last_potions = None
+        self._charge_failures = 0
 
     # --- 공통 ---
     def read(self):
@@ -79,8 +80,23 @@ class CycleBot:
         return state
 
     def click(self, x, y, hover=0.0):
+        if x is None or y is None:
+            raise ValueError("미실측(null) 좌표로 터치를 낼 수 없습니다")
         geo = self.window.geometry()
         self.window.click(x, y, geo, hover=hover)
+
+    # --- L2 액션 게이트: 판독이 확정되지 않으면 터치를 내지 않는다 ---
+    @staticmethod
+    def village_ok(view):
+        """마을 UI(인벤/두루마리) 조작 가능: 마을 + HP>0 + 지역 판독 확정."""
+        return (view is not None and view.get("hp") not in (None, 0)
+                and view.get("zone") == "safe")
+
+    @staticmethod
+    def field_ok(view):
+        """필드 조작(ATS/주문서) 가능: analyze의 ready 게이트를 그대로 쓴다."""
+        return (view is not None and view.get("hp") not in (None, 0)
+                and view.get("ready") is True)
 
     def grounds(self):
         """당일 제외를 제외한 현재 사냥터 목록(우선순위순)."""
@@ -131,7 +147,12 @@ class CycleBot:
         if frame is None:
             return None
         from linux_vision import crop, ocr
-        text = ocr(crop(frame, tuple(reader)), whitelist="0123456789:")
+        try:
+            text = ocr(crop(frame, tuple(reader)), whitelist="0123456789:")
+        except (OSError, ValueError, RuntimeError):
+            return None
+        if not isinstance(text, str):
+            return None
         try:
             hh, mm = text.split(":")
             return int(hh) * 60 + int(mm)
@@ -139,14 +160,20 @@ class CycleBot:
             return None
 
     def try_charge_ats(self):
-        """톱니바퀴 충전(설정 좌표가 있을 때만 시도). 성공 여부 반환."""
+        """톱니바퀴 충전(설정 좌표가 있을 때만). 재판독으로 증가를 확인한다."""
         charge = self.cfg.get("ats_charge_clicks")
         if not charge:
             return False
         for x, y in charge:
             self.click(x, y)
             time.sleep(0.8)
-        return True
+        time.sleep(2.0)
+        view = self.read()
+        after = self.ats_time_left(view) if view else None
+        if after is not None and after > 0:
+            return True
+        self._charge_failures += 1
+        return self._charge_failures < 2  # 2회 실패면 더 시도하지 않는다(END로)
 
     def run_supply(self, view):
         """보급: 소모품 목표 수량 확보 전에는 출발 금지."""
@@ -160,14 +187,20 @@ class CycleBot:
         inv = self.cfg.get("inventory_button")
         if not inv:
             return "SUPPLY", "인벤 좌표 미실측: 사람 보급 대기(터치 없음)"
+        if not self.village_ok(view):
+            return "SUPPLY", "마을 판독 미확정: 인벤 열기 보류"
         self.click(*inv)
         time.sleep(1.0)
         after = self.read()
         if after is None:
             return "SUPPLY", "인벤 판독 실패: 재시도"
+        # 수량 판독이 없는 현재는 사람이 보급을 확인했다는 명시 신호
+        # (assume_supplied) 없이는 출발하지 않는다(설계: 물약 확보 전 출발 금지).
+        if not self.cfg.get("assume_supplied"):
+            return "SUPPLY", "보급 미확정(assume_supplied 없음): 사람 확인 대기"
         # TODO(실측 후): 인벤 그리드에서 주홍/용기/2단/귀환주문서 수량 OCR.
-        # 귀환 주문서 0개면 절대 출발 금지(설계 원칙) — 실측 전엔 사람 판단.
-        return "SELECT_HUNT", "보급 확인(수량 판독은 인벤 실측 후 연결)"
+        # 귀환 주문서 0개면 절대 출발 금지(설계 원칙).
+        return "SELECT_HUNT", "보급 확인됨"
 
     def run_select_hunt(self, view):
         """사냥터 선택: 당일 제외 필터 + 우선순위 순서."""
@@ -180,6 +213,13 @@ class CycleBot:
 
     def run_move(self, view):
         """이동: 두루마리 즐겨찾기/입장 NPC → 도착 확인. 3회 실패 시 다음 사냥터."""
+        # 마을 UI 조작은 마을+판독 확정 상태에서만(리뷰 CRIT: 무조건 클릭 금지).
+        if not self.village_ok(view):
+            self._move_attempts += 1
+            if self._move_attempts >= 3:
+                self._move_attempts = 0
+                return "RETURN", "이동 전 판독 불가 3회: 귀환으로 철회"
+            return "MOVE", "이동 전 화면 미확정: 재판독"
         pool = self.grounds()
         ground = pool[self.ground_idx % len(pool)]
         steps = [self.cfg["scroll_button"]] + ground.get("scroll_path", [])
@@ -201,6 +241,7 @@ class CycleBot:
         self.hunt_started = time.monotonic()
         self.hp_low_since = None
         self._last_potions = None
+        self._ats_started = False  # 새 사냥터에서 ATS 재시작(리뷰 CRIT)
         self.stats = {"potions": 0, "emergency": 0}
         return "ATS_HUNT", f"도착: {ground['name']}"
 
@@ -241,6 +282,9 @@ class CycleBot:
             self.return_reason = "hp_danger"
             return "RETURN", "사망"
         # ATS 시작은 최초 1회 + 비정상 정지 감지 시에만(매 스텝 반복 금지).
+        # 터치는 L2 게이트(필드 판독 확정)를 통과할 때만 나간다.
+        if not self.field_ok(view):
+            return "ATS_HUNT", "필드 판독 미확정: ATS 조작 보류"
         if not self._ats_started:
             if not self._ats_configured:
                 self._ats_configured = self.ats_setup()
@@ -282,8 +326,11 @@ class CycleBot:
         if not rect or frame is None:
             return None
         from linux_vision import crop, ocr
-        text = ocr(crop(frame, tuple(rect)), whitelist="0123456789")
-        return int(text) if text.isdigit() else None
+        try:
+            text = ocr(crop(frame, tuple(rect)), whitelist="0123456789")
+        except (OSError, ValueError, RuntimeError):
+            return None
+        return int(text) if isinstance(text, str) and text.isdigit() else None
 
     def infer_return_reason(self, arrival_view):
         """ATS 자체 귀환의 원인을 마을 도착 화면에서 추론한다(설계 11번)."""
@@ -304,7 +351,7 @@ class CycleBot:
         # 필드에 남아 있고 봇이 귀환을 결정한 상황이면 직접 주문서를 쓴다.
         # 좌표 미실측(return_scroll 없음)이면 L0(ATS 자체 귀환)에 맡긴다.
         scroll = self.cfg.get("return_scroll")
-        if scroll and view is not None and view.get("hp") and not view.get("safe_zone"):
+        if scroll and self.field_ok(view):
             self.click(*scroll)
             time.sleep(5.0)
             home = self.read()
