@@ -52,7 +52,11 @@ class CdpWindow:
             pages[0]["webSocketDebuggerUrl"], timeout=20, suppress_origin=True)
         self.msg_id = 0
         self.window_id = 0  # 인터페이스 호환용
-        self.send("Emulation.setDeviceMetricsOverride", VIEWPORT)
+        self._cap_size = WINDOW_SIZE  # 최근 캡처 크기(클릭 역스케일용)
+        # 2026-09-09: Emulation.setDeviceMetricsOverride(VIEWPORT)를 제거했다.
+        # 오버라이드는 연결 시마다 사용자가 키운 창을 1933x1332로 되돌렸다
+        # (사용자 지적). 대신 캡처를 WINDOW_SIZE로 정규화하고 클릭 좌표를
+        # 실제 뷰포트로 역스케일해 창 크기와 무관하게 동작한다.
 
     def send(self, method, params=None):
         self.msg_id += 1
@@ -91,16 +95,17 @@ class CdpWindow:
         return False  # 중지는 --stop 상태 파일로만
 
     def find_and_restore(self):
-        # 창 리사이즈/재생성 개념이 없고 뷰포트는 고정 오버라이드 상태다.
-        self.send("Emulation.setDeviceMetricsOverride", VIEWPORT)
+        # 창 리사이즈/재생성 개념이 없다(뷰포트 오버라이드 폐지).
         return self.geometry()
 
     def capture(self):
         result = self.send("Page.captureScreenshot", {"format": "png"})
         img = cv2.imdecode(np.frombuffer(base64.b64decode(result["data"]),
                                          np.uint8), cv2.IMREAD_COLOR)
-        if (img.shape[1], img.shape[0]) != WINDOW_SIZE:
-            raise RuntimeError(f"CDP 캡처 크기 불일치: {img.shape[1]}x{img.shape[0]}")
+        self._cap_size = (img.shape[1], img.shape[0])
+        if self._cap_size != WINDOW_SIZE:
+            # 판독 좌표계(1933x1332)로 정규화한다 — 창 크기와 무관해짐.
+            img = cv2.resize(img, WINDOW_SIZE, interpolation=cv2.INTER_AREA)
         return img
 
     def click(self, x, y, expected_geometry, hover=0.0):
@@ -114,8 +119,11 @@ class CdpWindow:
         # 좌표가 비디오 밖으로 나가 클릭이 무시된다(2026-09-07 사고).
         # 웹플레이(모바일 클라이언트 스트리밍)는 마우스가 아니라 터치 입력을
         # 소비한다(실측: dispatchTouchEvent만 이동/조작 반응, 마우스 무반응).
+        cw, ch = self._cap_size
+        rx = round(x * cw / WINDOW_SIZE[0])
+        ry = round(y * ch / WINDOW_SIZE[1])
         self.send("Input.dispatchTouchEvent",
-                  {"type": "touchStart", "touchPoints": [{"x": x, "y": y, "id": 1}]})
+                  {"type": "touchStart", "touchPoints": [{"x": rx, "y": ry, "id": 1}]})
         time.sleep(0.12)
         self.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
 

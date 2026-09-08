@@ -18,6 +18,15 @@ def main():
     prev = None
     idle = 0
     log("ATS 감시 시작")
+    # 첫 기동: ATS가 꺼져 있는 상태로 시작하므로 1회 즉시 가동한다.
+    try:
+        if w.active():
+            log("ATS 첫 가동")
+            w.click(*ACTION_BTN, w.geometry()); time.sleep(1.5)
+            w.click(*ATS_MENU, w.geometry()); time.sleep(2)
+            w.click(*ATS_START, w.geometry()); time.sleep(2)
+    except Exception as exc:
+        log(f"첫 가동 오류(감시는 계속): {exc}")
     while not STOP.exists():
         try:
             if not w.active():
