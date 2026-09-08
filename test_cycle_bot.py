@@ -486,5 +486,36 @@ class ReviewMajorFollowupTests(IsolatedLogCase):
         self.assertEqual(bot.state, "END")
 
 
+class LoopGuardTests(IsolatedLogCase):
+    """자체 점검으로 발견한 무한루프 잔재 2건 방지 검증."""
+
+    def test_return_retry_capped(self):
+        """주문서 없이 필드에 남은 RETURN은 5회 재시도 후 END."""
+        bot, _ = make_bot(return_scroll=None)
+        bot.current_ground = "A터"
+        bot.hunt_started = time.monotonic() - 60
+        bot.state = "RETURN"
+        with patch_view(view(0.9)):  # 계속 필드
+            for _ in range(6):
+                if bot.state == "END":
+                    break
+                bot.return_reason = bot.return_reason or "unknown"
+                bot.step()
+        self.assertEqual(bot.state, "END")
+
+    def test_blocked_ready_state_times_out(self):
+        """hp는 있으나 ready=False(패널)가 120초 지속되면 안전 종료."""
+        bot, _ = make_bot()
+        bot.state = "ATS_HUNT"
+        bot._ats_started = True
+        bot.hunt_started = time.monotonic()
+        blocked = view(0.9)
+        blocked["ready"] = False
+        bot._blocked_since = time.monotonic() - 130
+        with patch_view(blocked):
+            bot.step()
+        self.assertEqual(bot.state, "END")
+
+
 if __name__ == "__main__":
     unittest.main()

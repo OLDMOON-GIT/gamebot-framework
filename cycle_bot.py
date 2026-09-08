@@ -66,6 +66,8 @@ class CycleBot:
         self._last_potions = None
         self._charge_failures = 0
         self._dead_waits = 0
+        self._return_attempts = 0
+        self._blocked_since = None
         self._unreadable_since = None
 
     # --- 공통 ---
@@ -301,7 +303,13 @@ class CycleBot:
         # ATS 시작은 최초 1회 + 비정상 정지 감지 시에만(매 스텝 반복 금지).
         # 터치는 L2 게이트(필드 판독 확정)를 통과할 때만 나간다.
         if not self.field_ok(view):
+            now = time.monotonic()
+            if self._blocked_since is None:
+                self._blocked_since = now
+            elif now - self._blocked_since > 120:
+                return "END", "입력 차단(패널 등) 120초 지속: 사람 확인 필요"
             return "ATS_HUNT", "필드 판독 미확정: ATS 조작 보류"
+        self._blocked_since = None
         if not self._ats_started:
             if not self._ats_configured:
                 self._ats_configured = self.ats_setup()
@@ -396,7 +404,11 @@ class CycleBot:
         alive_in_field = (view is not None and 0 < (view.get("hp") or 0)
                           and not view.get("safe_zone"))
         if alive_in_field:
-            return "RETURN", "아직 필드: 귀환 재시도"
+            self._return_attempts += 1
+            if self._return_attempts >= 5:
+                return "END", "귀환 5회 실패: 사람 확인 필요"
+            return "RETURN", f"아직 필드: 귀환 재시도({self._return_attempts}/5)"
+        self._return_attempts = 0
         return "TOWN", f"귀환 완료 원인={reason}"
 
     def run_end(self, view):
