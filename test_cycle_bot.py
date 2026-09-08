@@ -424,5 +424,67 @@ class ReviewGateTests(IsolatedLogCase):
         self.assertEqual(bot.state, "END")
 
 
+class ReviewMajorFollowupTests(IsolatedLogCase):
+    """2차 전수확인으로 발견한 MAJOR 4건 수정 검증."""
+
+    def test_move_with_empty_pool_ends(self):
+        """당일 제외로 pool이 빈 상태의 MOVE는 크래시 없이 END."""
+        import datetime as dt
+        bot, _ = make_bot()
+        bot.excluded = {dt.date.today().isoformat(): {"A터": "x", "B터": "x"}}
+        bot.state = "MOVE"
+        with patch_view(view(1.0, safe=True)):
+            bot.step()
+        self.assertEqual(bot.state, "END")
+
+    def test_dead_view_does_not_loop_forever(self):
+        """사망(hp=0) RETURN은 주문서 없이 대기하다 20회에 END로 빠진다."""
+        bot, win = make_bot()
+        bot.current_ground = "A터"
+        bot.hunt_started = time.monotonic() - 60
+        bot.state = "RETURN"
+        bot.return_reason = "hp_danger"
+        with patch_view(view(0)):
+            for _ in range(21):
+                if bot.state == "END":
+                    break
+                bot.state = "RETURN"
+                bot.return_reason = "hp_danger"
+                bot.step()
+        self.assertEqual(bot.state, "END")
+        self.assertEqual(win.clicks, [])  # 주문서 낭비 없음
+
+    def test_screen_stalled_uses_change_ratio(self):
+        """스트리밍 노이즈 고려: 동일 프레임 3회는 정지, 노이즈는 활동."""
+        import numpy as np
+        bot, _ = make_bot()
+        frame = np.zeros((1332, 1933, 3), dtype=np.uint8)
+        self.assertFalse(bot.screen_stalled(frame))  # 초기화 프레임
+        self.assertFalse(bot.screen_stalled(frame))  # 정지 1
+        self.assertFalse(bot.screen_stalled(frame))  # 정지 2
+        self.assertTrue(bot.screen_stalled(frame))   # 정지 3 → 판정
+        rng = np.random.default_rng(7)
+        noisy = rng.integers(0, 255, size=frame.shape, dtype=np.uint8)
+        self.assertFalse(bot.screen_stalled(noisy))  # 큰 변화 = 활동
+
+    def test_today_refreshes_on_date_change(self):
+        """자정(또는 재시작 없는 날짜 변경)에 당일 제외가 초기화된다."""
+        bot, _ = make_bot()
+        bot.today = "2000-01-01"
+        with patch_view(view(1.0, safe=True)):
+            bot.step()
+        import datetime as dt
+        self.assertEqual(bot.today, dt.date.today().isoformat())
+
+    def test_prolonged_unreadable_ends_safely(self):
+        """판독 불가 120초 지속(사망 게이지 0 포함)은 안전 종료."""
+        bot, _ = make_bot()
+        bot._unreadable_since = time.monotonic() - 130
+        bot.state = "TOWN"
+        with patch_view(None):
+            bot.step()
+        self.assertEqual(bot.state, "END")
+
+
 if __name__ == "__main__":
     unittest.main()

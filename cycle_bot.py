@@ -65,6 +65,8 @@ class CycleBot:
         self._move_attempts = 0
         self._last_potions = None
         self._charge_failures = 0
+        self._dead_waits = 0
+        self._unreadable_since = None
 
     # --- 공통 ---
     def read(self):
@@ -107,11 +109,24 @@ class CycleBot:
     def ground_name(self):
         return self.current_ground or "?"
 
+    def _wait_unreadable(self, state):
+        """판독 불가 대기 — 120초 이상 지속(사망/게임 종료 등)되면 안전 종료.
+
+        HP 게이지가 0이면 analyze가 None을 내보내 사망이 '판독 불가'로
+        나타난다(리뷰 MAJOR). 장기 지속은 사람 확인 대상이다.
+        """
+        now = time.monotonic()
+        if self._unreadable_since is None:
+            self._unreadable_since = now
+        elif now - self._unreadable_since > 120:
+            return "END", "판독 불가 120초 지속: 사람 확인 필요"
+        return state, "판독 불가 대기(모르는 화면=정지)"
+
     # --- 상태 동작 ---
     def run_town(self, view):
         """마을 대기: 위치 확인 + ATS 잔여 확인(0이면 END)."""
         if view is None or view["hp"] is None:
-            return "TOWN", "판독 불가 대기(모르는 화면=정지)"
+            return self._wait_unreadable("TOWN")
         if view["hp"] == 0:
             self.return_reason = "hp_danger"
             return "RETURN", "사망 상태: 귀환 처리로"
@@ -221,6 +236,8 @@ class CycleBot:
                 return "RETURN", "이동 전 판독 불가 3회: 귀환으로 철회"
             return "MOVE", "이동 전 화면 미확정: 재판독"
         pool = self.grounds()
+        if not pool:
+            return "END", "당일 이용 가능 사냥터 없음"
         ground = pool[self.ground_idx % len(pool)]
         steps = [self.cfg["scroll_button"]] + ground.get("scroll_path", [])
         for x, y in steps:
@@ -271,7 +288,7 @@ class CycleBot:
     def run_ats_hunt(self, view):
         """ATS에 사냥을 맡기고 감시만 한다(전투 개입 없음)."""
         if view is None or view["hp"] is None:
-            return "ATS_HUNT", "판독 불가 대기"
+            return self._wait_unreadable("ATS_HUNT")
         hp = view["hp"]
         cfg = self.cfg
         # L0가 먼저 떨어져 마을에 있으면(ATS 자체 귀환) 원인 추론으로 RETURN.
@@ -350,6 +367,12 @@ class CycleBot:
         name = self.ground_name()
         # 필드에 남아 있고 봇이 귀환을 결정한 상황이면 직접 주문서를 쓴다.
         # 좌표 미실측(return_scroll 없음)이면 L0(ATS 자체 귀환)에 맡긴다.
+        if view is not None and view.get("hp") == 0:
+            # 사망: 귀환 주문서도 못 쓴다. 부활은 사람 몫 — 일정 대기 후 종료.
+            self._dead_waits += 1
+            if self._dead_waits >= 20:
+                return "END", "사망 상태 지속: 사람 개입 필요(부활/보급)"
+            return "RETURN", "사망 대기(주문서 사용 불가)"
         scroll = self.cfg.get("return_scroll")
         if scroll and self.field_ok(view):
             self.click(*scroll)
@@ -369,7 +392,10 @@ class CycleBot:
             self.emergency_returns.pop(name, None)
         self.log_cycle(reason)
         self.return_reason = None
-        if view is not None and view.get("hp") is not None and not view.get("safe_zone"):
+        self._dead_waits = 0
+        alive_in_field = (view is not None and 0 < (view.get("hp") or 0)
+                          and not view.get("safe_zone"))
+        if alive_in_field:
             return "RETURN", "아직 필드: 귀환 재시도"
         return "TOWN", f"귀환 완료 원인={reason}"
 
@@ -378,16 +404,22 @@ class CycleBot:
         return "END", "ATS 시간 종료: 루프 종료"
 
     def screen_stalled(self, frame, need=3):
-        """연속 정지 프레임으로 ATS 멈춤을 판정한다(한 번으로 오판 금지)."""
+        """연속 정지 프레임으로 ATS 멈춤을 판정한다(한 번으로 오판 금지).
+
+        스트리밍은 항상 미세 노이즈가 있어 max 픽셀 차는 절대 0에 못 온다
+        (관측: 정지 시에도 diff>35 픽셀이 소수 존재). 변화 픽셀 비율
+        (임계 35, 0.3% 미만)로 정지를 판정한다.
+        """
         if frame is None:
             return False
         if self._prev_frame is None or self._prev_frame.shape != frame.shape:
             self._prev_frame = frame
             self._stall_count = 0
             return False
-        diff = cv2.absdiff(frame, self._prev_frame).max()
+        diff = cv2.absdiff(frame, self._prev_frame)
+        changed = float((diff.max(axis=2) > 35).mean())
         self._prev_frame = frame
-        if diff < 4:
+        if changed < 0.003:
             self._stall_count += 1
         else:
             self._stall_count = 0
@@ -405,7 +437,13 @@ class CycleBot:
     HANDLERS = {}
 
     def step(self):
+        today = dt.date.today().isoformat()
+        if today != self.today:
+            logging.info("날짜 갱신 %s → %s: 당일 제외 초기화", self.today, today)
+            self.today = today
         view = self.read()
+        if view is not None and view.get("hp") is not None:
+            self._unreadable_since = None  # 판독 성공: 불가 타이머 리셋
         handler = getattr(self, "run_" + self.state.lower())
         new_state, message = handler(view)
         if new_state != self.state:
