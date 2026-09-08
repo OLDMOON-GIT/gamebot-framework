@@ -343,7 +343,7 @@ class HardenedRulesTests(IsolatedLogCase):
 
     def test_move_triple_failure_selects_next_ground(self):
         """이동 3회 실패 → 다음 사냥터 선택으로(SUPPLY 경유)."""
-        bot, _ = make_bot()
+        bot, _ = make_bot(start_in_town=True)
         bot.state = "MOVE"
         for _ in range(3):
             with patch_view(view(1.0, safe=True)):  # 계속 마을 = 이동 실패
@@ -358,7 +358,7 @@ class HardenedRulesTests(IsolatedLogCase):
             sink.write(json.dumps({"t": time.time(), "date": bot_date(),
                                    "ground": "A터", "minutes": 181,
                                    "potions": 0, "reason": "ats_time_over"}) + "\n")
-        bot, _ = make_bot()  # ats_time_reader 없음 → None 판정 경로
+        bot, _ = make_bot(start_in_town=True)
         with patch_view(view(1.0, safe=True)):
             bot.step()
         self.assertEqual(bot.state, "END")
@@ -423,8 +423,8 @@ class ReviewGateTests(IsolatedLogCase):
         self.assertTrue(bot._ats_started)
 
     def test_charge_failure_twice_ends(self):
-        """충전 2회 실패면 END(무한 충전 재시도 차단)."""
-        bot, _ = make_bot(ats_time_reader=[1, 2, 3, 4],
+        """충전 실패는 즉시 END(무한 충전 재시도 차단)."""
+        bot, _ = make_bot(start_in_town=True, ats_time_reader=[1, 2, 3, 4],
                           ats_charge_clicks=[[10, 10]])
         bot.state = "TOWN"
         with patch_view(view(1.0, safe=True)), \
@@ -534,9 +534,12 @@ class ReverifyFixTests(IsolatedLogCase):
     """재리뷰가 잡은 미해결/오판 수정 확인."""
 
     def test_field_ok_rejects_village_even_ready(self):
-        village = view(1.0, safe=True)
-        self.assertTrue(village["ready"])
-        self.assertFalse(CycleBot.field_ok(village))
+        """in_town 상태면 ready=True여도 field_ok를 통과하지 못한다."""
+        bot, _ = make_bot(start_in_town=True)
+        self.assertTrue(view(1.0, safe=True)["ready"])
+        self.assertFalse(bot.field_ok(view(1.0, safe=True)))
+        bot.in_town = False
+        self.assertTrue(bot.field_ok(view(1.0)))
 
     def test_return_does_not_use_scroll_in_village(self):
         bot, win = make_bot(start_in_town=True)

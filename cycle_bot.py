@@ -56,6 +56,7 @@ class CycleBot:
         self.hunt_started = 0.0
         self.hp_low_since = None
         self.return_reason = None   # RETURN 원인 태그
+        self.in_town = bool(config.get("start_in_town", False))
         self.current_ground = None
         self.stats = {"potions": 0, "emergency": 0}
         self._prev_frame = None
@@ -89,21 +90,16 @@ class CycleBot:
         self.window.click(x, y, geo, hover=hover)
 
     # --- L2 액션 게이트: 판독이 확정되지 않으면 터치를 내지 않는다 ---
-    @staticmethod
-    def village_ok(view):
-        """마을 UI(인벤/두루마리) 조작 가능: 마을 + HP>0 + 지역 판독 확정."""
-        return (view is not None and view.get("hp") not in (None, 0)
-                and view.get("zone") == "safe")
+    def village_ok(self, view):
+        """마을 UI(인벤/두루마리) 조작 가능: 내부 마을 확정 상태 + HP>0."""
+        return (self.in_town and view is not None
+                and view.get("hp") not in (None, 0))
 
-    @staticmethod
-    def field_ok(view):
-        """필드 조작(ATS/주문서) 가능: ready + 실제 필드(zone != safe).
-
-        analyze는 마을 안전 구역이어도 ready=True를 유지하므로 위치
-        검증을 여기서 겹쳐야 한다 — 없으면 마을에서 주문서를 낭비한다.
-        """
-        return (view is not None and view.get("hp") not in (None, 0)
-                and view.get("ready") is True and view.get("zone") != "safe")
+    def field_ok(self, view):
+        """필드 조작(ATS/주문서) 가능: ready + 내부 상태가 필드(in_town=False)."""
+        return (not self.in_town and view is not None
+                and view.get("hp") not in (None, 0)
+                and view.get("ready") is True)
 
     def grounds(self):
         """당일 제외를 제외한 현재 사냥터 목록(우선순위순)."""
@@ -130,13 +126,12 @@ class CycleBot:
     # --- 상태 동작 ---
     def run_town(self, view):
         """마을 대기: 위치 확인 + ATS 잔여 확인(0이면 END)."""
-        if view is None or view["hp"] is None or view.get("zone") == "unknown":
+        if view is None or view["hp"] is None:
             return self._wait_unreadable("TOWN")
         if view["hp"] == 0:
             self.return_reason = "hp_danger"
             return "RETURN", "사망 상태: 귀환 처리로"
-        if not view["safe_zone"]:
-            # 필드에 서 있으면 일단 귀환(ATS가 이미 보낸 경우도 이 경로)
+        if not self.in_town:
             return "RETURN", "필드에 있음: 귀환 원인 판별로"
         ats_left = self.ats_time_left(view)
         if ats_left is not None and ats_left <= 0:
@@ -261,6 +256,9 @@ class CycleBot:
         self.hp_low_since = None
         self._last_potions = None
         self._ats_started = False  # 새 사냥터에서 ATS 재시작(리뷰 CRIT)
+        self.in_town = False      # 두루마리 탑승 = 필드(게임 보증)
+        self._full_hp_streak = 0
+        self._saw_low_hp = False
         self.stats = {"potions": 0, "emergency": 0}
         return "ATS_HUNT", f"도착: {ground['name']}"
 
@@ -296,7 +294,14 @@ class CycleBot:
         # L0가 먼저 떨어져 마을에 있으면(ATS 자체 귀환) 원인 추론으로 RETURN.
         # 마을 감지: zone 텍스트가 없는 이 UI에선 저HP 관측 후 풀HP 회복 지속.
         if self._town_signal(view):
-            self.return_reason = self.infer_return_reason(view)
+            # 원인은 귀환 직전 상태(마지막 저HP/물약)로 판정한다.
+            potions = self.quickslot_potions(view)
+            if getattr(self, "_last_low_hp", 1.0) < 0.55:
+                self.return_reason = "hp_danger"
+            elif potions is not None and potions <= cfg.get("potion_reserve", 50):
+                self.return_reason = "potion_preempt"
+            else:
+                self.return_reason = "idle_no_combat"
             return "RETURN", f"ATS 자체 귀환 감지(추정 원인={self.return_reason})"
         if hp == 0:
             self.return_reason = "hp_danger"
@@ -344,6 +349,20 @@ class CycleBot:
             self.return_reason = "ats_time_over"
             return "RETURN", "사냥 시간 종료: 다음 사냥터"
         return "ATS_HUNT", f"감시 HP={hp:.2f} 주홍={potions}"
+
+    def _town_signal(self, view):
+        """ATS 자체 귀환(마을 복귀) 감지: 저HP 관측 뒤 풀HP 회복 지속."""
+        hp = view.get("hp")
+        if hp is None:
+            return False
+        if hp >= 0.97:
+            self._full_hp_streak = getattr(self, "_full_hp_streak", 0) + 1
+            return self._full_hp_streak >= 3 and getattr(self, "_saw_low_hp", False)
+        self._full_hp_streak = 0
+        if hp < 0.75:
+            self._saw_low_hp = True
+            self._last_low_hp = hp
+        return False
 
     def quickslot_potions(self, view):
         """퀵슬롯 주홍 개수 판독. 좌표 미실측/실패면 None(예방 귀환 비활성)."""
@@ -410,6 +429,7 @@ class CycleBot:
                 return "END", "귀환 5회 실패: 사람 확인 필요"
             return "RETURN", f"아직 필드: 귀환 재시도({self._return_attempts}/5)"
         self._return_attempts = 0
+        self.in_town = True  # 귀환 주문서/ATS 귀환 = 마을(게임 보증)
         return "TOWN", f"귀환 완료 원인={reason}"
 
     def run_end(self, view):
