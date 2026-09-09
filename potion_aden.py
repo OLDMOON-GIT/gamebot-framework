@@ -45,6 +45,7 @@ def load_slot():
             data = json.loads(SLOT_PATH.read_text())
             return tuple(data["xy"])
         except (ValueError, KeyError):
+            return None
     return None
 
 
