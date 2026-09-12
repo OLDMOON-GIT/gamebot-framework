@@ -72,8 +72,11 @@ class VisionTests(unittest.TestCase):
             self.assertFalse(vision.analyze(self.frame)["ready"])
 
     def test_safety_zone_blocks_candidates(self):
-        texts = ["purpleon.plaync.com/webplay/linclassic", "HP71/71", "MP7/7", "Safety zoHe", ""]
-        with patch.object(vision, "ocr", side_effect=texts):
+        # zone_read는 다중 rect/잉크 가드를 쓰므로 값 자체를 패치해
+        # analyze의 마을 게이트 동작만 검증한다(판독기 자체는 실물 프레임 검증).
+        texts = ["purpleon.plaync.com/webplay/linclassic", "HP71/71", "MP7/7", ""]
+        with patch.object(vision, "ocr", side_effect=texts), \
+                patch.object(vision, "zone_read", return_value="Safety zoHe"):
             result = vision.analyze(self.frame)
         self.assertTrue(result["ready"])
         self.assertTrue(result["safe_zone"])
@@ -81,8 +84,9 @@ class VisionTests(unittest.TestCase):
 
     def test_death_and_unknown_zone_block(self):
         for hp, zone in [("HP0/71", "Normal zone"), ("HP71/71", "???")]:
-            texts = ["purpleon.plaync.com/webplay/linclassic", hp, "MP7/7", zone]
-            with patch.object(vision, "ocr", side_effect=texts):
+            texts = ["purpleon.plaync.com/webplay/linclassic", hp, "MP7/7", ""]
+            with patch.object(vision, "ocr", side_effect=texts), \
+                    patch.object(vision, "zone_read", return_value=zone):
                 self.assertFalse(vision.analyze(self.frame)["ready"])
 
     def test_hud_and_health_bars_are_not_monsters(self):
@@ -102,8 +106,9 @@ class VisionTests(unittest.TestCase):
         self.assertEqual(result["mobs"], [])
 
     def test_menu_close_blocks_even_when_hp_and_zone_are_readable(self):
-        texts = ["purpleon.plaync.com/webplay/linclassic", "HP71/71", "MP7/7", "Normal zone", "Close"]
-        with patch.object(vision, "ocr", side_effect=texts):
+        texts = ["purpleon.plaync.com/webplay/linclassic", "HP71/71", "MP7/7", "Close"]
+        with patch.object(vision, "ocr", side_effect=texts), \
+                patch.object(vision, "zone_read", return_value="Normal zone"):
             result = vision.analyze(self.frame)
         self.assertFalse(result["ready"])
         self.assertIn("패널", result["reason"])
@@ -134,9 +139,10 @@ class VisionTests(unittest.TestCase):
         cv2.putText(self.frame, "RED NAME", (800, 400), cv2.FONT_HERSHEY_SIMPLEX,
                     0.6, (0, 0, 255), 1)
         candidates = vision.red_name_candidates(self.frame)
-        texts = ["purpleon.plaync.com/webplay/linclassic", "HP71/71", "MP7/7", "Normal zone", ""]
+        texts = ["purpleon.plaync.com/webplay/linclassic", "HP71/71", "MP7/7", ""]
         texts += ["검증몹"] * len(candidates)
-        with patch.object(vision, "ocr", side_effect=texts):
+        with patch.object(vision, "ocr", side_effect=texts), \
+                patch.object(vision, "zone_read", return_value="Normal zone"):
             result = vision.analyze(self.frame, target_profiles={"검증 몹": [4, 33]})
         self.assertEqual(result["mobs"], [(x + 4, y + 33, area)
                                           for x, y, area, _ in candidates])

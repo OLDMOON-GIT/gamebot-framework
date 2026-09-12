@@ -16,7 +16,13 @@ class FakeWindow:
         return True
 
     def capture(self):
-        return self.frames.pop(0) if self.frames else "frame"
+        # 2026-09-09: assets/ui/action_btn.png가 실재하게 되어 문자열
+        # 프레임이면 find_button이 frame.shape 접근에서 죽는다. 실제 배열을
+        # 돌려준다(검은 화면 = 매칭 실패 = 클릭 없음, 원래 취지 유지).
+        import numpy as np
+        if self.frames:
+            self.frames.pop(0)
+        return np.zeros((1332, 1933, 3), dtype=np.uint8)
 
     def geometry(self):
         return (0, 0, 1933, 1332)

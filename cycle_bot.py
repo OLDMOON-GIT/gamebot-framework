@@ -25,6 +25,7 @@ from pathlib import Path
 
 import cv2
 
+from ats_probe import ON, UNKNOWN
 from linux_vision import analyze
 
 CONFIG_PATH = Path(__file__).parent / "hunt_config.json"
@@ -42,6 +43,26 @@ RETURN_REASONS = ("potion_preempt", "hp_danger", "weight", "idle_no_combat",
 def cfg_daily_cap(cfg):
     """일일 사냥 누적 상한(분). 공식 하루 3시간 기준 기본 180."""
     return float(cfg.get("daily_hunt_cap_minutes", 180))
+
+
+def initial_state_from_view(view):
+    """main() 첫 판독으로 시작 위치를 자동 판별한다(필드 기동 사고 방지).
+
+    2026-09-09: start_in_town=true 기본값 탓에 필드 캐릭터가 첫 스텝에서
+    RETURN으로 흘러 귀환 주문서를 찍는 위험이 있었다. 판별 규칙:
+    - HP>0 + 안전지역 → ("TOWN", True): 마을 정상 사이클
+    - HP>0 + 비안전지역 → ("ATS_HUNT", False): 필드 사냥 중 복귀.
+      귀환 주문서 금지 — 이미 사냥 중이면 ATS에 맡기고 감시만 한다.
+    - 판독 불가/사망(hp 0) → None: 기본 상태 유지(터치 없는 대기).
+
+    자동 판별은 main()에만 두고 CycleBot.__init__ 기본 동작(테스트의
+    start_in_town/TOWN 전이)은 그대로 유지한다.
+    """
+    if view is None or view.get("hp") in (None, 0):
+        return None
+    if view.get("safe_zone"):
+        return "TOWN", True
+    return "ATS_HUNT", False
 
 
 class CycleBot:
@@ -62,6 +83,10 @@ class CycleBot:
         self._prev_frame = None
         self._ats_configured = False
         self._ats_started = False
+        self._boot = None            # AtsBoot(지연 생성 — 잔여시간 탐침 포함)
+        self._ats_fallback_used = False  # 실측 ats_clicks 폴백은 사이클당 1회
+        self._boot_restarts = 0      # UNKNOWN 지속 재기동 예산(사냥터당 2회)
+        self._unknown_since = None
         self._stall_count = 0
         self._move_attempts = 0
         self._last_potions = None
@@ -69,6 +94,26 @@ class CycleBot:
         self._return_attempts = 0
         self._blocked_since = None
         self._unreadable_since = None
+        self._return_unreadable = 0  # BTS-1033015: 귀환 확인 불가 연속 횟수
+        self._supply_since = None    # BTS-1033015: 보급 대기 시작 시각
+        for item in self.inactive_safeties():
+            logging.warning("안전장치 비활성: %s", item)
+
+    def inactive_safeties(self):
+        """설정 미실측으로 꺼져 있는 안전장치 목록(BTS-1033015).
+
+        종전에는 이 값들이 null/빈배열이면 해당 기능이 조용히 비활성화돼,
+        운영자가 '봇이 물약 잔량도 보고 ATS 기동도 검증한다'고 오인했다.
+        기동 시 경고로 남겨 무엇이 꺼진 상태인지 드러낸다.
+        """
+        checks = (
+            ("quickslot_potion_count_rect", "주홍 잔량 판독(예방 귀환)"),
+            ("ats_time_reader", "ATS 잔여시간 판독(기동 검증)"),
+            ("ats_setup_clicks", "ATS 긴급물약 임계값 자동설정"),
+            ("return_scroll", "귀환 주문서 직접 사용"),
+        )
+        return [f"{label} — {key} 미실측"
+                for key, label in checks if not self.cfg.get(key)]
 
     # --- 공통 ---
     def read(self):
@@ -114,10 +159,16 @@ class CycleBot:
                 and view.get("hp") not in (None, 0))
 
     def field_ok(self, view):
-        """필드 조작(ATS/주문서) 가능: ready + 내부 상태가 필드(in_town=False)."""
+        """필드 조작(ATS/주문서) 가능: ready + 내부 상태가 필드(in_town=False).
+
+        뷰 자체가 마을(safe_zone)이면 필드 조작을 금지한다 — 필드 부팅
+        상태에서 ATS(L0)가 자체 귀환한 직후 마을 화면에 주문서를 찍는
+        사고를 막는다(2026-09-09).
+        """
         return (not self.in_town and view is not None
                 and view.get("hp") not in (None, 0)
-                and view.get("ready") is True)
+                and view.get("ready") is True
+                and not view.get("safe_zone"))
 
     def grounds(self):
         """당일 제외를 제외한 현재 사냥터 목록(우선순위순)."""
@@ -274,6 +325,10 @@ class CycleBot:
         self.hp_low_since = None
         self._last_potions = None
         self._ats_started = False  # 새 사냥터에서 ATS 재시작(리뷰 CRIT)
+        self._boot = None          # 카운트다운 샘플도 새 사냥터 기준으로 초기화
+        self._ats_fallback_used = False
+        self._boot_restarts = 0
+        self._unknown_since = None
         self.in_town = False      # 두루마리 탑승 = 필드(게임 보증)
         self._full_hp_streak = 0
         self._saw_low_hp = False
@@ -303,6 +358,134 @@ class CycleBot:
         except (AttributeError, RuntimeError, ValueError):
             return False
 
+    # --- ATS 기동: AtsBoot(검증 경로) 우선, 실측 클릭은 폴백으로만 ---
+    def verifiable_ats(self):
+        """잔여시간 ROI(ats_time_reader)가 실측돼 있으면 카운트다운
+        감소로 ON을 검증할 수 있다. 없으면 검증 자체가 불가능하다."""
+        return bool(self.cfg.get("ats_time_reader"))
+
+    def _ensure_boot(self):
+        if self._boot is None:
+            from ats_boot import AtsBoot
+            self._boot = AtsBoot(self.window, self.cfg)
+        return self._boot
+
+    def _run_ats_setup_once(self):
+        """Alt+W 설정은 실측된 설정 클릭(ats_setup_clicks)이 있을 때만.
+        빈 클릭 목록으로 창만 열어 두면 판독 차단(ready=False)의 원인이 된다."""
+        if self._ats_configured or not self.cfg.get("ats_setup_clicks"):
+            return
+        self._ats_configured = self.ats_setup()
+
+    def _wait_ats_on(self, boot, seconds=15.0):
+        """카운트다운 감소(=ON)가 확인될 때까지 샘플링 대기한다."""
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            time.sleep(2.5)
+            try:
+                if not self.window.active():
+                    continue
+                frame = self.window.capture()
+            except (RuntimeError, OSError):
+                continue
+            if boot.keep_alive_step(frame) == ON:
+                return True
+        return False
+
+    def _screen_active(self, samples=3, gap=2.0, move=28):
+        """짧은 관찰로 캐릭터 이동(=사냥/조작 활동) 여부를 검사한다.
+
+        ATS ON 판정에는 쓰지 않는다(사용자 플레이와 구분 불가 — 협의 원칙).
+        목적은 반대 방향 안전: '지금 누군가(사용자 또는 기존 ATS) 사냥 중'
+        이면 ats_clicks 폴백으로 메뉴를 열어 기존 동작을 끊지 않는다.
+        검증 수단(잔여시간)이 없어 이미 ON 여부를 배제할 수 없을 때 필요하다.
+        """
+        from linux_vision import find_character
+        last = None
+        for _ in range(samples):
+            try:
+                if not self.window.active():
+                    return True   # 스트림 끊김 = 조작하지 않는다
+                frame = self.window.capture()
+            except (RuntimeError, OSError):
+                return True
+            char = find_character(frame)
+            if char is not None:
+                if last is not None and \
+                        ((char[0] - last[0]) ** 2 + (char[1] - last[1]) ** 2) ** 0.5 >= move:
+                    return True
+                last = (char[0], char[1])
+            time.sleep(gap)
+        return False
+
+    def _start_ats(self):
+        """ATS 기동 1스텝 — AtsBoot(템플릿+카운트다운 검증)이 기본 경로.
+
+        검증 가능(ats_time_reader 실측)할 때는 ON 확인 전에 _ats_started가
+        True가 되지 않는다. 템플릿 기동 실패 시 실측 ats_clicks 폴백은
+        사이클당 정확히 1회이고, 그래도 ON이 아니면 END(사람 확인 필요).
+        검증 수단 자체가 없으면 실측 클릭 1회만 시도하고 '미검증' 감시로
+        들어간다(매 스텝 재클릭 금지).
+        """
+        boot = self._ensure_boot()
+        if self.verifiable_ats():
+            state = boot.boot()
+            if state == ON:
+                self._ats_started = True
+                return None
+            # 폴백 클릭 직전 재확인: 기존 ON(카운트다운 감소)이면 클릭 0회.
+            if self._wait_ats_on(boot, seconds=10.0):
+                self._ats_started = True
+                return None
+            if self._ats_fallback_used:
+                return "END", "ATS 기동 실패(폴백 소진): 사람 확인 필요"
+            if self._screen_active():
+                # 카운트다운 미감소인데 화면에 사냥 활동 = 사용자 플레이 중.
+                # 조작하지 않고 감시로 돌아간다(이번 스텝 클릭 없음).
+                return None
+            self._ats_fallback_used = True
+            self._run_ats_setup_once()
+            self.ats_on()
+            if self._wait_ats_on(boot, seconds=15.0):
+                self._ats_started = True
+                return None
+            logging.error("ATS 기동 확인 실패: 카운트다운 미감소")
+            return "END", "ATS 기동 확인 실패(카운트다운 미감소): 사람 확인 필요"
+        # 잔여시간 ROI 미실측 = ON 검증 원천 불가. 실측 클릭 1회만.
+        if self._screen_active():
+            # 화면에 사냥/이동 활동이 있으면 기존 ATS(또는 사용자)가 동작
+            # 중일 수 있다 — 이미 ON일 가능성을 배제할 수 없어 조작하지
+            # 않고 '외부 기동 간주' 감시로 들어간다(메뉴 난사 금지).
+            self._ats_started = True
+            self._ats_fallback_used = True
+            logging.warning("화면 활동 감지: 기존 사냥 존재 추정 — 조작 없이 감시만 한다")
+            return None
+        self._ats_fallback_used = True
+        self._run_ats_setup_once()
+        self.ats_on()
+        self._ats_started = True
+        logging.warning("ATS 잔여시간 ROI 미실측: 기동 검증 없이 감시만 한다")
+        return None
+
+    def _ats_keepalive(self, view):
+        """감시 스텝(검증 모드): 카운트다운 신호 유지 확인. UNKNOWN이
+        오래 지속되면 예산 내에서 재기동을 예약한다(다음 스텝 boot)."""
+        boot = self._ensure_boot()
+        stale = boot.probe.stale(seconds=180)
+        state = UNKNOWN if stale else boot.keep_alive_step(view.get("_frame"))
+        if state == ON:
+            self._unknown_since = None
+            return
+        now = time.monotonic()
+        if self._unknown_since is None:
+            self._unknown_since = now
+        elif now - self._unknown_since > 180 and self._boot_restarts < 2:
+            self._boot_restarts += 1
+            self._unknown_since = None
+            self._ats_started = False   # 다음 스텝에서 boot 재시도
+            logging.warning("ATS 상태 UNKNOWN 3분 지속: 재기동 예약(%d/2)",
+                            self._boot_restarts)
+
     def run_ats_hunt(self, view):
         """ATS에 사냥을 맡기고 감시만 한다(전투 개입 없음)."""
         if view is None or view["hp"] is None:
@@ -327,6 +510,12 @@ class CycleBot:
         # ATS 시작은 최초 1회 + 비정상 정지 감지 시에만(매 스텝 반복 금지).
         # 터치는 L2 게이트(필드 판독 확정)를 통과할 때만 나간다.
         if not self.field_ok(view):
+            reason = view.get("reason") or ""
+            if reason.startswith("지역 상태"):
+                # zone 판독 실패(밝은 배경·전투 이펙트 등)는 소프트 차단이다:
+                # HP 감시는 유효하므로 터치만 보류한다(패널과 달리 END급 아님).
+                self._blocked_since = None
+                return "ATS_HUNT", "zone 판독 실패(배경 영향): 터치 보류"
             now = time.monotonic()
             if self._blocked_since is None:
                 self._blocked_since = now
@@ -335,14 +524,20 @@ class CycleBot:
             return "ATS_HUNT", "필드 판독 미확정: ATS 조작 보류"
         self._blocked_since = None
         if not self._ats_started:
-            if not self._ats_configured:
-                self._ats_configured = self.ats_setup()
-            self.ats_on()
-            self._ats_started = True
+            outcome = self._start_ats()
+            if outcome is not None:
+                return outcome
+        elif self.verifiable_ats():
+            self._ats_keepalive(view)
         elif self.screen_stalled(view.get("_frame")):
-            logging.info("화면 비정상 정지: ATS 재시작")
-            self.ats_on()
-            self._stall_count = 0  # 재시작 직후 다시 정지 판정 초기화
+            # 미검증 모드(잔여시간 ROI 없음)의 보조 재기동. absdiff는 ON
+            # 판정에 쓰지 않는다 — 재기동 트리거로만(예산 내 한정).
+            if self._boot_restarts < 2:
+                self._boot_restarts += 1
+                logging.info("화면 비정상 정지: ATS 재시작(보조 %d/2)",
+                             self._boot_restarts)
+                self.ats_on()
+                self._stall_count = 0
         # L1 예방: 주홍 안전재고 이하 → 정상 귀환(공식 ATS는 개수 기준 미지원).
         potions = self.quickslot_potions(view)
         if potions is not None:
@@ -520,6 +715,20 @@ def main():
         from linux_window import PurpleWindow
         window = PurpleWindow()
     bot = CycleBot(window, config)
+    # 시작 위치 자동 판별(2026-09-09): 필드(사냥 중)에서 기동했는데
+    # start_in_town 기본값 때문에 첫 스텝 RETURN → 귀환 주문서 클릭으로
+    # 이어지는 사고를 막는다. 판별은 main에만 둔다(테스트 기본 동작 유지).
+    auto = initial_state_from_view(bot.read())
+    if auto is not None:
+        state, in_town = auto
+        if state == "ATS_HUNT":
+            # 이미 사냥터에 있다: SUPPLY/MOVE를 건너뛰고 감시부터 시작.
+            bot.hunt_started = time.monotonic()
+            bot.current_ground = "필드 기동(기존 사냥터)"
+            bot._full_hp_streak = 0
+            bot._saw_low_hp = False
+        logging.info("시작 위치 판별: %s (in_town=%s)", state, in_town)
+        bot.state, bot.in_town = state, in_town
     deadline = time.monotonic() + args.seconds
     try:
         while time.monotonic() < deadline:

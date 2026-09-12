@@ -13,13 +13,22 @@ from pathlib import Path
 import cv2
 
 from cdp_window import CdpWindow
-from linux_vision import hp_from_gauge, scan_drops
+from item_labels import PICK_RECT, detect_labels
+from linux_vision import hp_from_gauge
 from user_gate import user_active
 
 RUNTIME = Path("/tmp/linc-bot-linux")
 STOP = RUNTIME / "stop"
 SLOT_PATH = RUNTIME / "potion_slot.json"
 POTION_HP = 0.70  # 사용자 지정: 70%에서 물약
+GRID = 20          # 블랙리스트 대조용 좌표 격자 크기(px)
+BLACKLIST_TTL = 60  # 블랙리스트 유효 시간(초) — 캐릭터가 이동하면 화면 좌표가
+                    # 달라지므로 영구 차단하면 멀쩡한 아이템까지 막힌다.
+
+
+def cell(x, y):
+    """좌표를 격자 셀로 환산(미세한 흔들림 흡수)."""
+    return x // GRID, y // GRID
 
 # 퀵슬롯 후보 격자(2x2+주변, 실측 라인 y 1150~1270 / x 1540~1700)
 CANDIDATES = [(x, y) for y in (1165, 1185, 1205, 1225, 1245)
@@ -93,7 +102,7 @@ def main():
     log("물약+아덴 통합 시작")
     close_leftover_panel(w)
     slot = load_slot()
-    blacklist = set()
+    blacklist = {}  # 셀 좌표 -> 차단 시각(초), TTL 경과 시 자동 해제
     picked = 0
     potions = 0
     no_potion_noted = False
@@ -120,24 +129,29 @@ def main():
                 time.sleep(1.5)
                 continue
             no_potion_noted = False
-            # --- 아덴 줍기 (검증 로직: aden_picker 실측 이식) ---
-            drops = [d for d in scan_drops(img)
-                     if (d[0], d[1]) not in blacklist
-                     and 560 <= d[0] <= 1290 and 240 <= d[1] <= 730]
-            if not drops:
+            # --- 아덴 줍기 (드랍 이름 라벨 검출: aden_picker 실측 이식) ---
+            now = time.time()
+            blacklist = {k: t for k, t in blacklist.items() if now - t < BLACKLIST_TTL}
+            labels = [l for l in detect_labels(img, PICK_RECT)
+                      if cell(l.cx, l.bottom) not in blacklist]
+            if not labels:
                 time.sleep(4)
                 continue
-            for dx_, dy_, _ in drops[:2]:
-                yield_click(w, dx_, dy_)
+            # 가까운 것부터: 라벨이 화면 아래쪽일수록 캐릭터에 가깝다
+            labels.sort(key=lambda l: -l.bottom)
+            tried = labels[:2]
+            for l in tried:
+                yield_click(w, *l.click)
                 time.sleep(1.3)
-            after = w.capture()
-            remaining = {(d[0] // 20, d[1] // 20) for d in scan_drops(after)}
-            for dx_, dy_, _ in drops[:2]:
-                if (dx_ // 20, dy_ // 20) not in remaining:
-                    picked += 1
+            after = detect_labels(w.capture(), PICK_RECT)
+            remaining = {cell(l.cx, l.bottom) for l in after}
+            for l in tried:
+                key = cell(l.cx, l.bottom)
+                if key in remaining:
+                    blacklist[key] = time.time()
                 else:
-                    blacklist.add((dx_, dy_))
-            log(f"줍기 시도 {len(drops[:2])} (누적 {picked}, 차단 {len(blacklist)})")
+                    picked += 1
+            log(f"줍기 시도 {len(tried)} (누적 {picked}, 차단 {len(blacklist)})")
             time.sleep(2)
         except Exception as exc:
             log(f"오류: {exc} — 재접속")

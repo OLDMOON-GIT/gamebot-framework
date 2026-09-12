@@ -4,11 +4,13 @@
 """
 import json
 import time
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import cycle_bot
+from ats_probe import ON, UNKNOWN
 from cycle_bot import CycleBot
 
 
@@ -563,6 +565,140 @@ class ReverifyFixTests(IsolatedLogCase):
         with patch_view(unknown):
             bot.step()
         self.assertEqual(bot.clicks if hasattr(bot, "clicks") else win.clicks, [])
+
+
+class AtsBootLinkTests(IsolatedLogCase):
+    """ATS_HUNT ↔ AtsBoot 연결 + 시작 위치 자동 판별 검증 (2026-09-09)."""
+
+    class FakeBoot:
+        def __init__(self, boot_result=UNKNOWN, keep=UNKNOWN, stale=False):
+            self.boot_result = boot_result
+            self.keep = keep
+            self.stale_flag = stale
+            self.boot_calls = 0
+            self.probe = types.SimpleNamespace(
+                stale=lambda seconds=180: self.stale_flag)
+
+        def boot(self):
+            self.boot_calls += 1
+            return self.boot_result
+
+        def keep_alive_step(self, frame):
+            return self.keep
+
+    def test_field_boot_starts_ats_hunt_without_scroll(self):
+        """필드에서 기동하면 첫 상태 ATS_HUNT + 귀환 주문서 클릭 0회."""
+        bot, win = make_bot()
+        auto = cycle_bot.initial_state_from_view(view(0.9))
+        self.assertEqual(auto, ("ATS_HUNT", False))
+        bot.state, bot.in_town = auto
+        bot.hunt_started = time.monotonic()
+        bot.current_ground = "필드 기동"
+        with patch_view(view(0.9)):
+            bot.step()
+        self.assertEqual(bot.state, "ATS_HUNT")
+        self.assertNotIn(tuple(bot.cfg["return_scroll"]), win.clicks)
+
+    def test_initial_state_variants(self):
+        """마을은 TOWN, 판독 불가/사망은 판별 보류(None)."""
+        self.assertEqual(
+            cycle_bot.initial_state_from_view(view(1.0, safe=True)), ("TOWN", True))
+        self.assertIsNone(cycle_bot.initial_state_from_view(None))
+        self.assertIsNone(cycle_bot.initial_state_from_view(view(0)))
+
+    def test_boot_failure_falls_back_once_then_ends(self):
+        """검증 가능 환경에서 boot 실패 → 실측 클릭 폴백 정확히 1회 →
+        여전히 ON 아니면 END. ON 확인 전 _ats_started True 금지."""
+        bot, win = make_bot(ats_time_reader=[1, 2, 3, 4])
+        bot.state = "ATS_HUNT"
+        fake = self.FakeBoot(boot_result=UNKNOWN)
+        with patch_view(view(0.9)), \
+                patch.object(CycleBot, "_ensure_boot", lambda self: fake), \
+                patch.object(CycleBot, "_wait_ats_on", return_value=False):
+            bot.step()
+            self.assertEqual(bot.state, "END")
+            self.assertFalse(bot._ats_started)
+            self.assertEqual(fake.boot_calls, 1)
+            # 폴백 1회 = ats_clicks 세트 정확히 한 번 (매 스텝 클릭 금지)
+            self.assertEqual(win.clicks, [tuple(c) for c in bot.cfg["ats_clicks"]])
+            bot.step()
+            self.assertEqual(bot.state, "END")
+            self.assertEqual(len(win.clicks), len(bot.cfg["ats_clicks"]))
+
+    def test_already_on_never_clicks(self):
+        """이미 ON(카운트다운 감소 확인)이면 boot 클릭 0회로 시작 확정."""
+        bot, win = make_bot(ats_time_reader=[1, 2, 3, 4])
+        bot.state = "ATS_HUNT"
+        bot.hunt_started = time.monotonic()
+        fake = self.FakeBoot(boot_result=ON, keep=ON)
+        with patch_view(view(0.9)), \
+                patch.object(CycleBot, "_ensure_boot", lambda self: fake):
+            bot.step()
+            bot.step()
+        self.assertEqual(bot.state, "ATS_HUNT")
+        self.assertTrue(bot._ats_started)
+        self.assertEqual(win.clicks, [])
+        self.assertEqual(fake.boot_calls, 1)  # keep-alive은 boot 재호출 없음
+
+    def test_screen_activity_blocks_fallback_clicks(self):
+        """화면에 사냥 활동(기존 ATS/사용자 플레이)이 있으면 폴백 클릭
+        없이 감시만 한다 — 기존 동작을 메뉴로 끊지 않는다."""
+        bot, win = make_bot()
+        bot.state = "ATS_HUNT"
+        bot.hunt_started = time.monotonic()
+        with patch_view(view(0.9)), \
+                patch.object(CycleBot, "_screen_active", return_value=True):
+            bot.step()
+        self.assertEqual(bot.state, "ATS_HUNT")
+        self.assertTrue(bot._ats_started)   # 외부 기동 간주 — 감시 모드
+        self.assertEqual(win.clicks, [])    # 메뉴 조작 0회
+
+    def test_no_scroll_click_on_village_view_after_field_boot(self):
+        """필드 부팅 상태에서 마을 뷰(ATS 자체 귀환 직후)가 오면
+        귀환 주문서를 클릭하지 않는다 — 이미 마을이므로 낭비/오조작."""
+        bot, win = make_bot()   # start_in_town=False → 필드 부팅
+        bot.current_ground = "필드 기동"
+        bot.hunt_started = time.monotonic() - 60
+        bot.state = "RETURN"
+        bot.return_reason = "hp_danger"
+        with patch_view(view(1.0, safe=True)):   # 마을 화면
+            bot.step()
+        self.assertEqual(bot.state, "TOWN")
+        self.assertNotIn(tuple(bot.cfg["return_scroll"]), win.clicks)
+        self.assertEqual(win.clicks, [])
+
+    def test_zone_read_failure_is_soft_block(self):
+        """zone 판독 실패(밝은 배경)는 패널 차단과 달리 END 에스컬레이션
+        없이 터치만 보류한다 — 기존 사냥 감시는 계속된다."""
+        bot, win = make_bot()
+        bot.state = "ATS_HUNT"
+        bot.hunt_started = time.monotonic()
+        blocked = view(0.9)
+        blocked["ready"] = False
+        blocked["reason"] = "지역 상태 판독 실패: 입력 차단"
+        bot._blocked_since = time.monotonic() - 130  # 이미 120초 경과 상태
+        with patch_view(blocked):
+            bot.step()
+        self.assertEqual(bot.state, "ATS_HUNT")
+        self.assertEqual(win.clicks, [])
+
+    def test_keepalive_unknown_long_schedules_reboot(self):
+        """ON이던 ATS가 UNKNOWN 3분 지속 → 예산 내 재기동 예약(클릭 없이)."""
+        bot, win = make_bot(ats_time_reader=[1, 2, 3, 4])
+        bot.state = "ATS_HUNT"
+        bot._ats_started = True
+        bot.hunt_started = time.monotonic()
+        fake = self.FakeBoot(keep=UNKNOWN, stale=True)
+        bot._unknown_since = time.monotonic() - 200
+        with patch_view(view(0.9)), \
+                patch.object(CycleBot, "_ensure_boot", lambda self: fake):
+            bot.step()
+            self.assertEqual(bot.state, "ATS_HUNT")
+            self.assertFalse(bot._ats_started)   # 다음 스텝에서 boot 재시도
+            self.assertEqual(bot._boot_restarts, 1)
+            self.assertEqual(win.clicks, [])      # 이 스텝에는 클릭 없음
+            bot.step()
+            self.assertEqual(fake.boot_calls, 1)  # 재기동 = boot 재호출
 
 
 if __name__ == "__main__":

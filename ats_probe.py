@@ -55,6 +55,7 @@ class AtsProbe:
         self.rect = tuple(rect) if rect else None
         self.samples = []  # (monotonic_time, seconds)
         self.max_samples = max_samples
+        self._started = time.monotonic()
 
     def observe(self, frame):
         """프레임 하나를 관찰해 상태를 반환한다."""
@@ -65,6 +66,9 @@ class AtsProbe:
         if seconds is not None:
             self.samples.append((now, seconds))
             self.samples = self.samples[-self.max_samples:]
+        # 끊긴 ATS의 옛 샘플이 남아 감소 오판(ON)을 만드는 일을 막는다:
+        # 2분 넘게 오래된 샘플은 판정에서 버린다.
+        self.samples = [(t, s) for t, s in self.samples if now - t <= 120]
         if len(self.samples) < 2:
             return UNKNOWN
         (t0, s0), (t1, s1) = self.samples[-2], self.samples[-1]

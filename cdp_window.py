@@ -108,20 +108,49 @@ class CdpWindow:
             img = cv2.resize(img, WINDOW_SIZE, interpolation=cv2.INTER_AREA)
         return img
 
+    def video_css_rect(self, force=False):
+        """비디오 엘리먼트의 CSS 픽셀 rect. 창 크기가 바뀌면 같이 바뀌므로
+        캐시하되 force로 갱신한다. 조회 실패 시 None(=변환 생략)."""
+        if force:
+            self._css_rect = None
+        if getattr(self, "_css_rect", None) is not None:
+            return self._css_rect
+        try:
+            res = self.send("Runtime.evaluate", {
+                "expression": '(()=>{const v=document.querySelector("video");'
+                              'if(!v)return null;const b=v.getBoundingClientRect();'
+                              'return (b.width>0&&b.height>0)?[b.x,b.y,b.width,b.height]:null})()',
+                "returnByValue": True})
+            self._css_rect = res.get("result", {}).get("value")
+        except Exception:
+            self._css_rect = None
+        return self._css_rect
+
+    def to_css(self, x, y):
+        """판독 좌표(1933x1332) → dispatch용 CSS 픽셀 좌표."""
+        rect = self.video_css_rect()
+        if not rect:
+            return round(x), round(y)
+        vx, vy, vw, vh = VIDEO_RECT
+        cx, cy, cw, ch = rect
+        return (round(cx + (x - vx) * cw / vw),
+                round(cy + (y - vy) * ch / vh))
+
     def click(self, x, y, expected_geometry, hover=0.0):
         # 로비/로그인 UI까지 조작해야 하므로 뷰포트 전체를 허용한다.
         # 사냥 좌표 검증(PLAY_RECT)은 호출부(hunt_loop)가 담당한다.
         if not (0 <= x < WINDOW_SIZE[0] and 0 <= y < WINDOW_SIZE[1]):
             raise ValueError("클릭 위치가 뷰포트 밖입니다")
-        # dispatch 좌표는 뷰포트(clientX) 기준이다(실측: 전송값=clientX 1:1).
-        # 스트리밍 플레이어가 내부에서 게임 좌표로 변환하므로 여기서는
-        # 절대 변환하지 않는다 — to_stream을 여기 넣으면 이중 변환으로
-        # 좌표가 비디오 밖으로 나가 클릭이 무시된다(2026-09-07 사고).
+        # dispatch 좌표는 CSS 픽셀(clientX) 기준이고, 입력 좌표는 판독
+        # 좌표계(WINDOW_SIZE=1933x1332)다. 이 둘은 1:1이 아니다 —
+        # 2026-09-14 실측: innerWidth/Height=2335x1472, 스크린샷=1933x1332.
+        # 미변환으로 dispatch하면 배율 1.19만큼 어긋난 지점을 눌러
+        # 아이템 라벨 대신 엉뚱한 땅으로 이동한다(줍기 영구 실패의 원인).
+        # 비디오 rect를 런타임 조회해 아핀 변환하므로 창 크기가 바뀌어도
+        # 따라간다(하드코딩 배율 금지).
         # 웹플레이(모바일 클라이언트 스트리밍)는 마우스가 아니라 터치 입력을
         # 소비한다(실측: dispatchTouchEvent만 이동/조작 반응, 마우스 무반응).
-        cw, ch = self._cap_size
-        rx = round(x * cw / WINDOW_SIZE[0])
-        ry = round(y * ch / WINDOW_SIZE[1])
+        rx, ry = self.to_css(x, y)
         self.send("Input.dispatchTouchEvent",
                   {"type": "touchStart", "touchPoints": [{"x": rx, "y": ry, "id": 1}]})
         time.sleep(0.12)

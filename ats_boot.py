@@ -64,6 +64,20 @@ class AtsBoot:
             state = self.probe.observe(frame)
             if state == ON:
                 return ON
+            # 기동 조작 전 2샘플 재확인: 카운트다운 판정에는 샘플 2개가
+            # 필요해 첫 관찰만으로는 ON을 배제할 수 없다. 재확인 없이
+            # 바로 조작하면 이미 돌던 ATS를 메뉴로 건드린다(클릭 0회 원칙).
+            time.sleep(3.0)
+            try:
+                if not self.window.active():
+                    time.sleep(5)
+                    continue
+                confirm = self.window.capture()
+            except (RuntimeError, OSError):
+                time.sleep(5)
+                continue
+            if self.probe.observe(confirm) == ON:
+                return ON
             logging.info("기동 시도 %d/%d (현재 상태=%s)", attempt, BOOT_BUDGET, state)
             if not self.try_start(frame):
                 logging.warning("기동 불가(템플릿 부재) — 실측 필요")

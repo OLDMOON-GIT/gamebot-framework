@@ -22,10 +22,19 @@ MP_RECT = (1180, 1002, 140, 36)
 # 분리 크롭으로 읽어 비율을 구한다.
 HP_CUR_RECT = (955, 1005, 50, 32)
 HP_MAX_RECT = (1010, 1005, 60, 32)
-# HUD HP 게이지(2026-09-07 CDP 창 실측): x737~1071 트랙 334px, 우측 기준 채움.
-HP_GAUGE_RECT = (737, 1004, 334, 12)
+# HUD HP 게이지: 트랙 334px 실측(2026-09-07). 게이지 막대 위치는 스트림
+# 레이아웃에 따라 y1004와 y1028 두 곳에서 관측됐다(2026-09-09 재접속 후
+# 약 +24px 시프트) → 고정 rect 대신 밴드에서 막대 성분을 찾는다.
+HP_GAUGE_BAND = (700, 980, 520, 130)
 HP_GAUGE_TRACK = 334.0
-ZONE_RECT = (1765, 995, 165, 45)
+# zone 텍스트(2026-09-09 라이브 실측): 우상단 HUD에 지역종류가 뜬다.
+# 마을 "Safety Zone"은 파란 글씨, 필드 "Normal Zone"은 흰 글씨. 재접속
+# 후 레이아웃이 약 +22px 내려가 두 위치가 모두 존재한다 → 후보 rect를
+# 순서대로 시도한다. 예전 ZONE_RECT(1765,995)는 한 칸 아래 빈 영역을
+# 보고 있어 항상 판독 실패했다(관측: 'a'/'OS'만 반환).
+ZONE_RECTS = ((1762, 963, 166, 34),   # 마을 파랑(아이콘 제외 폭)
+              (1735, 984, 190, 32),   # 필드 흰색(재접속 레이아웃)
+              (1735, 962, 186, 36))   # 필드 흰색(기존 레이아웃)
 URL_RECT = (190, 50, 500, 50)
 PANEL_CLOSE_RECT = (1510, 200, 90, 40)
 INVENTORY_GRID_RECT = (1580, 232, 300, 565)
@@ -79,18 +88,27 @@ def parse_ratio(text, label):
 def hp_from_gauge(img):
     """HUD HP 게이지(빨간 채움 막대) 폭으로 HP 비율을 즉시 판독한다.
 
-    트랙 334px 실측(5샘플 일관, 오차 ±1%). OCR보다 빠르고 슬래시/글자
-    오독이 원천적으로 없다. 게이지가 안 보이면 None.
+    트랙 334px 실측(5샘플 일관, 오차 ±1~5%). OCR보다 빠르고 슬래시/글자
+    오독이 원천적으로 없다. 밴드에서 '막대 모양' 성분(폭≥40, 높이≤14,
+    가로/세로≥15)만 취한다 — 바로 아래 빨간 'HP 97/134' 텍스트는
+    w/h≈10라 자동 배제된다(2026-09-09 실측). 막대가 없으면 None.
     """
-    region = crop(img, HP_GAUGE_RECT)
+    region = crop(img, HP_GAUGE_BAND)
     hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
     red = cv2.inRange(hsv, (0, 150, 120), (10, 255, 255)) | \
         cv2.inRange(hsv, (170, 150, 120), (180, 255, 255))
-    columns = np.where(red.max(axis=0) > 0)[0]
-    if len(columns) == 0:
+    joined = cv2.morphologyEx(red, cv2.MORPH_CLOSE, np.ones((1, 5), np.uint8))
+    contours, _ = cv2.findContours(joined, cv2.RETR_EXTERNAL,
+                                   cv2.CHAIN_APPROX_SIMPLE)
+    best = None
+    for contour in contours:
+        x, y, width, height = cv2.boundingRect(contour)
+        if width >= 40 and 3 <= height <= 14 and width / height >= 15:
+            if best is None or width > best:
+                best = width
+    if best is None:
         return None
-    width = columns.max() - columns.min() + 1
-    return float(min(1.0, width / HP_GAUGE_TRACK))
+    return float(min(1.0, best / HP_GAUGE_TRACK))
 
 
 def hp_from_hud_digits(img):
@@ -118,22 +136,54 @@ def zone_kind(text):
         return "unknown"
     head, tail = words[0], "".join(words[1:])
     zone_like = tail.startswith(("zone", "cone", "zo", "z0ne"))
-    if head in {"safety", "satety", "safey", "satefy"} and zone_like:
+    if head in {"safety", "satety", "safey", "satefy",
+                "satcty", "salety"} and zone_like:
+        # satcty/salety: 2026-09-09 라이브 "Safety Zone" 파랑 텍스트 오독 실측
         return "safe"
-    if head in {"normal", "combat"} and zone_like:
+    if head in {"normal", "combat", "normial", "nornial", "gomibat"} and zone_like:
+        # normial/nornial/gomibat: 필드 지역 텍스트 오독 실측(관찰/전투 프레임)
         return "combat"
     return "unknown"
 
 
-def zone_read(img):
-    """파란 zone 텍스트를 파랑 잉크 이진화로 읽어 글자 오독을 줄인다."""
-    region = crop(img, ZONE_RECT)
+def _zone_ocr(img, rect):
+    """지역 텍스트 한 rect 판독 — 파랑(마을)+밝은색(필드) 통합 잉크 마스크."""
+    region = crop(img, rect)
     channels = region.astype(np.int16)
-    ink = ((channels[:, :, 0] - channels[:, :, 2] > 25)
-           & (channels[:, :, 0] - channels[:, :, 1] > 10)
-           & (channels[:, :, 0] > 90)).astype(np.uint8) * 255
-    enlarged = cv2.resize(255 - ink, None, fx=3, fy=3, interpolation=cv2.INTER_NEAREST)
+    blue = ((channels[:, :, 0] - channels[:, :, 2] > 25)
+            & (channels[:, :, 0] - channels[:, :, 1] > 10)
+            & (channels[:, :, 0] > 90))
+    bright = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY) > 165
+    if int((blue | bright).sum()) < 120:
+        return ""  # 잉크 부족 = 판독 포기(빈 화면을 텍스트로 옮기는 것 방지)
+    mask = (blue | bright).astype(np.uint8) * 255
+    enlarged = cv2.resize(255 - mask, None, fx=4, fy=4,
+                          interpolation=cv2.INTER_LINEAR)
+    enlarged = cv2.dilate(enlarged, np.ones((2, 2), np.uint8))
     return ocr(enlarged, scale=1)
+
+
+def _zone_direct_ocr(img, rect):
+    """밝은 배경(하늘 등) 전용: 마스크 없이 tesseract 자체 이진화에 맡긴다.
+    전투 중 "Combat Zone"(흰 글씨=밝은 하늘)은 잉크 마스크가 실패하지만
+    이 경로로 은힌다(2026-09-09 실측: 'Gomibat zone')."""
+    region = crop(img, rect)
+    enlarged = cv2.resize(region, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
+    return ocr(enlarged, lang="eng", scale=1)
+
+
+def zone_read(img):
+    """지역 텍스트를 읽는다. 마을(파랑)/필드(흰색)×레이아웃 2종 후보 rect를
+    순서대로 시도하고, 잉크 마스크가 실패하면 직접 OCR로 재시도한다."""
+    text = ""
+    for rect in ZONE_RECTS:
+        text = _zone_ocr(img, rect)
+        if zone_kind(text) != "unknown":
+            return text
+        direct = _zone_direct_ocr(img, rect)
+        if zone_kind(direct) != "unknown":
+            return direct
+    return text
 
 
 def inventory_grid_visible(img):
