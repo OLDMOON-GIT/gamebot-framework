@@ -1,6 +1,7 @@
 # linc-bot 크롬 확장 브리지 (BTS-1033280)
 
 크롬을 `--remote-debugging-port` 없이 띄워도 봇이 붙을 수 있게 하는 경로.
+(`run_bot_chrome.sh` 는 아직 9333 직결도 같이 켜 둔다 — 확장 경로가 안정되면 그 플래그를 뺀다.)
 
 ```
 cycle_bot --ext ──ws──▶ ext_bridge.py(:9335) ◀──ws── 확장 서비스워커 ──chrome.debugger──▶ 퍼플 탭
@@ -9,7 +10,7 @@ cycle_bot --ext ──ws──▶ ext_bridge.py(:9335) ◀──ws── 확장 
 - `ext_bridge.py` 는 크롬 원격 디버깅의 `/json`, `/json/version`, `/devtools/page/<id>` 를
   그대로 흉내낸다. 그래서 `CdpWindow(port=9335)` 가 코드 변경 없이 붙는다.
 - 확장은 `purpleon.plaync.com` 탭에 `chrome.debugger.attach` 하고 CDP 명령을 중계한다.
-  브리지가 죽어도 2초마다 재접속한다. 탭 URL 이 바뀌면 자동 detach.
+  브리지가 죽어도 2초마다 재접속한다. 탭이 닫히거나 디버거가 외부에서 떨어지면 상태를 초기화한다(다음 명령에서 재attach).
 - 봇별 `id` 는 브리지가 전역 id 로 재매핑하므로 봇 여러 개가 동시에 붙어도 응답이 섞이지 않는다.
 
 ## 설치
@@ -30,6 +31,10 @@ python3 -m pytest test_ext_bridge.py -q      # 10 tests
 ```
 
 ## 주의
+
+- 브리지는 127.0.0.1 전용이고, `/ext` 는 `chrome-extension://` Origin 만, 봇 경로는 Origin 헤더가
+  **없는** 접속(파이썬 클라이언트)만 받는다. 웹페이지 JS 가 게임 탭을 조종하거나 확장 자리를
+  가로채는 것을 막기 위함. 브라우저에서 `ws://127.0.0.1:9335/...` 를 직접 열면 403.
 
 - `chrome.debugger` attach 중에는 탭 상단에 "디버깅 중" 띠가 뜬다.
   `--silent-debugger-extension-api` 플래그로 숨길 수 있다(봇 크롬에 적용됨).

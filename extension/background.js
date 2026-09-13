@@ -35,10 +35,14 @@ async function purpleTabs() {
 }
 
 async function pickTab(requestedTabId) {
-  if (requestedTabId != null) {
-    return requestedTabId;
-  }
   const tabs = await purpleTabs();
+  if (requestedTabId != null) {
+    // 리뷰: 브리지가 준 tabId 라도 퍼플온 탭일 때만 attach 한다 (임의 탭 디버거 부착 차단)
+    if (tabs.some((t) => t.id === requestedTabId)) {
+      return requestedTabId;
+    }
+    throw new Error(`tabId ${requestedTabId} 는 퍼플온 탭이 아닙니다`);
+  }
   if (tabs.length !== 1) {
     throw new Error(`퍼플온 탭을 하나로 특정할 수 없습니다: ${tabs.length}개`);
   }

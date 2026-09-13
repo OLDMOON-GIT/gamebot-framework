@@ -95,8 +95,10 @@ class FakeExtension:
 
     async def _main(self):
         self.stop_flag = asyncio.Event()
+        # 실제 확장 서비스워커는 Origin=chrome-extension://<id> 를 보낸다
         async with websockets.connect(
-                f"ws://127.0.0.1:{self.port}/ext", max_size=None) as ws:
+                f"ws://127.0.0.1:{self.port}/ext", max_size=None,
+                origin="chrome-extension://fakeextensionid") as ws:
             self.ws = ws
             await ws.send(json.dumps({"method": "Bridge.hello",
                                       "params": {"version": "test"}}))
@@ -307,5 +309,41 @@ def test_multiple_purple_tabs_rejected_by_cdpwindow(bridge):
     try:
         with pytest.raises(RuntimeError, match="2개"):
             CdpWindow(port=bridge.port)
+    finally:
+        ext.stop()
+
+
+def test_ext_path_rejects_non_extension_origin(bridge):
+    """리뷰: 웹페이지 JS 가 /ext 에 붙어 확장 자리를 가로채는 것을 막는다."""
+    async def _try(origin):
+        try:
+            async with websockets.connect(
+                    f"ws://127.0.0.1:{bridge.port}/ext", origin=origin):
+                return "accepted"
+        except websockets.exceptions.InvalidStatus as exc:
+            return exc.response.status_code
+    assert asyncio.run(_try("https://evil.example")) == 403
+    assert asyncio.run(_try("http://127.0.0.1:9335")) == 403
+    # Origin 없는 접속(브라우저 아님)도 /ext 에는 못 붙는다
+    assert asyncio.run(_try(None)) == 403
+
+
+def test_bot_path_rejects_browser_origin(bridge):
+    """리뷰: 브라우저 페이지가 봇으로 위장해 게임 탭에 CDP 를 보내는 것을 막는다."""
+    ext = FakeExtension(bridge.port); ext.start()
+    try:
+        assert wait_until(lambda: http_json(bridge.port, "/json"))
+        url = http_json(bridge.port, "/json")[0]["webSocketDebuggerUrl"]
+
+        async def _try(origin):
+            try:
+                async with websockets.connect(url, origin=origin):
+                    return "accepted"
+            except websockets.exceptions.InvalidStatus as exc:
+                return exc.response.status_code
+        assert asyncio.run(_try("https://purpleon.plaync.com")) == 403
+        assert asyncio.run(_try("chrome-extension://someid")) == 403
+        # 파이썬 봇(Origin 없음)은 통과
+        assert asyncio.run(_try(None)) == "accepted"
     finally:
         ext.stop()

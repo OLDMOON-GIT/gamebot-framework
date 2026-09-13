@@ -189,8 +189,22 @@ class Bridge:
         path = request.path.split("?", 1)[0]
         upgrade = (request.headers.get("Upgrade") or "").lower()
         if upgrade == "websocket":
-            if path == EXT_PATH or path.startswith(PAGE_PREFIX):
-                return None
+            # BTS-1033280 리뷰: 브라우저 페이지 JS 는 ws://127.0.0.1 에 자유롭게 붙을 수
+            # 있고 Origin 을 위조하지 못한다. 그래서 Origin 으로 발신자를 가른다.
+            #  - /ext          : 확장 서비스워커만 (Origin=chrome-extension://...)
+            #  - /devtools/... : 봇(파이썬 websockets, Origin 없음)만. Origin 이 있으면
+            #                    웹페이지 → 게임 탭 원격조종 시도이므로 거부.
+            origin = request.headers.get("Origin") or ""
+            if path == EXT_PATH:
+                if origin.startswith("chrome-extension://"):
+                    return None
+                log.warning("/ext 거부 Origin=%r", origin)
+                return conn.respond(HTTPStatus.FORBIDDEN, "forbidden\n")
+            if path.startswith(PAGE_PREFIX):
+                if not origin:
+                    return None
+                log.warning("bot 경로 거부 Origin=%r", origin)
+                return conn.respond(HTTPStatus.FORBIDDEN, "forbidden\n")
             return conn.respond(HTTPStatus.NOT_FOUND, "not found\n")
         if path in ("/json", "/json/list"):
             body = json.dumps(await self.tabs_json())
