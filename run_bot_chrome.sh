@@ -40,6 +40,29 @@ while true; do
   start_ts=$(date +%s)
   # fcitx5가 떠 있지 않으면 먼저 기동
   pgrep -x fcitx5 >/dev/null || (setsid fcitx5 -d >/dev/null 2>&1 &)
+  # 강제 종료 후 재기동하면 크롬이 이전 세션 탭을 복원해 퍼플온 탭이 2개가 되고
+  # cdp_window 가 "탭을 하나로 특정할 수 없음"으로 죽는다(실측). 9333이 뜨면 중복 탭·
+  # 단축키 안내 탭(support.google.com)을 닫아 퍼플온 탭 하나만 남긴다.
+  ( for _ in $(seq 1 40); do sleep 1
+      curl -sf http://127.0.0.1:9333/json >/dev/null 2>&1 || continue
+      python3 - <<'PY' >> /home/oldmoon/workspace/linc-bot/botchrome.log 2>&1
+import json, urllib.request
+ts = json.load(urllib.request.urlopen("http://127.0.0.1:9333/json", timeout=3))
+keep = False
+for t in ts:
+    u = t.get("url", "")
+    if t.get("type") != "page":
+        continue
+    dup = "purpleon.plaync.com/webplay" in u and keep
+    junk = "support.google.com" in u
+    if "purpleon.plaync.com/webplay" in u:
+        keep = True
+    if dup or junk:
+        urllib.request.urlopen(f"http://127.0.0.1:9333/json/close/{t['id']}", timeout=3).read()
+        print(f"기동 정리: 탭 닫음 {'중복 퍼플온' if dup else '안내'} {u[:60]}")
+PY
+      break
+    done ) &
   /home/oldmoon/.cache/ms-playwright/chromium-1234/chrome-linux/chrome \
     --remote-debugging-port=9333 --remote-allow-origins='*' \
     --load-extension="$SCRIPT_DIR/extension,$SCRIPT_DIR/linc-vision-ext" --silent-debugger-extension-api \
