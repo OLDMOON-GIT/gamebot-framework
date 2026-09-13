@@ -92,10 +92,13 @@ def parse_ratio(text, label):
 def hp_from_gauge(img):
     """HUD HP 게이지(빨간 채움 막대) 폭으로 HP 비율을 즉시 판독한다.
 
-    트랙 334px 실측(5샘플 일관, 오차 ±1~5%). OCR보다 빠르고 슬래시/글자
-    오독이 원천적으로 없다. 밴드에서 '막대 모양' 성분(폭≥40, 높이≤14,
-    가로/세로≥15)만 취한다 — 바로 아래 빨간 'HP 97/134' 텍스트는
-    w/h≈10라 자동 배제된다(2026-09-09 실측). 막대가 없으면 None.
+    트랙 334px 실측(5샘플 일관, 오차 ±1~5%). fixture 실측(2026-09-13,
+    HP 202/244): 진짜 막대 = (x57,y60,w279,h29) → 279/334=0.835, OCR
+    0.828과 일치. 그 위 6px 테두리 하이라이트 = (x59,y53,w~237,h6)는
+    HP와 무관한 성분 — 종전 필터(3<=h<=14, w/h>=15)는 h29 막대를 버리고
+    이 h6 하이라이트를 잡아 항상 0.70에 고착시켰다(BTS-1033250).
+    진짜 막대만 잡도록 높이 22~45(하이라이트/글자 배제) + w/h 상한 15
+    (하이라이트 w/h≈39 이중 배제)로 잡는다. 막대가 없으면 None.
     """
     region = crop(img, HP_GAUGE_BAND)
     hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
@@ -107,7 +110,7 @@ def hp_from_gauge(img):
     best = None
     for contour in contours:
         x, y, width, height = cv2.boundingRect(contour)
-        if width >= 40 and 3 <= height <= 14 and width / height >= 15:
+        if width >= 40 and 22 <= height <= 45 and width / height <= 15:
             if best is None or width > best:
                 best = width
     if best is None:
@@ -119,32 +122,43 @@ def hp_from_gauge(img):
 HP_DROP_GUARD = 0.30
 # OCR이 끊겨도 이 시간까지는 마지막 유효값을 쓴다. 넘으면 None(물약 보류).
 HP_STALE_SEC = 1.5
+# OCR과 게이지가 이 간격 이상 벌어지면 OCR 오독으로 보고 게이지를 취한다.
+# 라이브 실측(2026-09-13): 206/244가 한 프레임 20/244(0.083)로 오독 —
+# 게이지 0.83과 0.75 벌어졌다. 정상 프레임의 OCR-게이지 차는 ±0.01 이내.
+HP_CROSS_GUARD = 0.15
 _LAST_HP = None
 _LAST_HP_TS = 0.0
+_LAST_MAX = None
 
 
 def hp_read(img):
-    """HP 비율 통합 판독. HUD 숫자(OCR) 우선, 게이지는 폴백.
+    """HP 비율 통합 판독. HUD 숫자(OCR) 우선 + 게이지 교차검증/폴백.
 
-    게이지 경로를 우선으로 쓰면 안 된다(BTS-1033250): 밴드에서 '가장 넓은
-    빨간 막대'를 고르는 방식이라 HP와 무관한 성분을 잡아 값이 고착되는
-    일이 있다. 2026-09-13 라이브에서 실제 HP가 206→205로 변하는 동안
-    게이지는 237/334=0.7096에 5프레임 고정, OCR은 0.844→0.840으로 정확히
-    추적했다. 0.7096은 물약 임계(0.70) 바로 위라 노이즈만으로 경계를
-    넘나들며 풀피 물약 무한소모를 일으켰다.
+    BTS-1033250 3중 방어:
+    1. 분모 점프 가드 — hp_from_hud_digits 안에서 분모(최대 HP)가 직전과
+       다르면 오독으로 유보(레벨업은 다음 프레임 승인).
+    2. 교차검증 — OCR과 (고쳐진) 게이지가 HP_CROSS_GUARD 이상 벌어지면
+       OCR 오독으로 보고 게이지를 취한다. 종전에는 게이지가 h6 하이라이트
+       를 잡는 버그가 있어 폴백을 아예 끊았으나, height 필터 수정(2026-09-13
+       fixture 실측)으로 게이지가 0.835=OCR 0.828 수준으로 정확해졌다.
+    3. 급락 가드 — 직전값 대비 급락(HP_DROP_GUARD 초과)은 한 프레임 유보.
 
-    둘 다 실패하면 None. 호출부는 None에서 물약을 쓰지 않는다 — 모르면
-    추측하지 않는 쪽이 안전하다.
+    둘 다 실패하면 직전값을 HP_STALE_SEC까지 유지하고 그 뒤 None.
+    호출부는 None에서 물약을 쓰지 않는다 — 모르면 추측하지 않는 쪽이 안전.
     """
     global _LAST_HP, _LAST_HP_TS
     now = time.monotonic()
 
     value = hp_from_hud_digits(img)
+    if value is not None:
+        gauge = hp_from_gauge(img)
+        if gauge is not None and abs(value - gauge) > HP_CROSS_GUARD:
+            value = gauge  # OCR-게이지 불일치: 게이지 쪽이 정상 경로
+    else:
+        # OCR 실패 → 게이지 폴백(위 교차검증 근거로 신뢰 회복)
+        value = hp_from_gauge(img)
+
     if value is None:
-        # 게이지로는 폴백하지 않는다. 라이브에서 OCR이 끊긴 3프레임 동안
-        # 게이지가 0.69를 내놨는데, 실제 HP는 0.93이었다. 임계(0.70)를
-        # 아슬하게 밑도는 값이라 그대로 물약이 나갔다.
-        # 대신 최근 유효값을 짧게 유지하고, 그마저 오래되면 모른다고 답한다.
         if _LAST_HP is not None and now - _LAST_HP_TS <= HP_STALE_SEC:
             return _LAST_HP
         return None
@@ -153,11 +167,9 @@ def hp_read(img):
     _LAST_HP = value
     _LAST_HP_TS = now
     if prev is not None and prev - value > HP_DROP_GUARD:
-        # 한 프레임만의 급락은 OCR 자릿수 오독일 때가 많다. 라이브에서
-        # 206/244(0.844)가 한 프레임 20/244(0.083)으로 읽혔고, 그대로
-        # 믿으면 풀피에 물약이 나간다. 이번 프레임은 직전값을 유지하고,
-        # 다음 프레임에도 낮게 나오면 그때 채택된다(_LAST_HP는 이미 갱신).
-        # 진짜 급락이어도 한 프레임(약 0.7초)만 늦다.
+        # 한 프레임만의 급락은 OCR 자릿수 오독일 때가 많다. 이번 프레임은
+        # 직전값을 유지하고, 다음 프레임에도 낮게 나오면 그때 채택된다
+        # (_LAST_HP는 이미 갱신). 진짜 급락이어도 한 프레임(약 0.7초)만 늦다.
         return prev
     return value
 
@@ -167,7 +179,13 @@ def hp_from_hud_digits(img):
 
     CDP 창 실측(2026-09-07): 슬래시가 OCR에서 유실돼 'HP94134'처럼 붙어
     나온다. 숫자 영역을 나눠 읽으면 슬래시 없이 비율을 확정할 수 있다.
+
+    분모(최대 HP) 점프 가드(BTS-1033250): 244→24처럼 분모가 한 프레임에
+    바뀌면 오독으로 본다. 이번 프레임은 버리고 관측값을 기록해, 다음
+    프레임도 같은 분모면(실제 레벨업) 그때 승인한다 — 급락 가드와 같은
+    '1프레임 유보' 철학.
     """
+    global _LAST_MAX
     current = ocr(crop(img, HP_CUR_RECT), whitelist="0123456789")
     maximum = ocr(crop(img, HP_MAX_RECT), whitelist="0123456789")
     if not isinstance(current, str) or not isinstance(maximum, str):
@@ -175,6 +193,10 @@ def hp_from_hud_digits(img):
     if current.strip().isdigit() and maximum.strip().isdigit():
         low, high = int(current), int(maximum)
         if 0 < high and low <= high:
+            if _LAST_MAX is not None and high != _LAST_MAX:
+                _LAST_MAX = high  # 관측은 기록(다음 프레임 일치 시 승인)
+                return None       # 분모 점프 프레임은 오독으로 유보
+            _LAST_MAX = high
             return low / high
     return None
 
