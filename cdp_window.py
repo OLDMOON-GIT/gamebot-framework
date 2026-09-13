@@ -186,6 +186,87 @@ class CdpWindow:
         self.send("Input.dispatchKeyEvent", {**common, "type": "keyDown"})
         self.send("Input.dispatchKeyEvent", {**common, "type": "keyUp"})
 
+    def video_read_rect(self):
+        """판독 좌표계(WINDOW_SIZE) 기준 video 위치. game_area가 사용한다."""
+        rect = self.video_css_rect()
+        if not rect:
+            return None
+        try:
+            vp = self.send("Runtime.evaluate",
+                           {"expression": "[innerWidth,innerHeight]",
+                            "returnByValue": True})["result"]["value"]
+            sx, sy = WINDOW_SIZE[0] / vp[0], WINDOW_SIZE[1] / vp[1]
+        except Exception:
+            return None
+        cx, cy, cw, ch = rect
+        return (int(cx * sx), int(cy * sy),
+                int((cx + cw) * sx), int((cy + ch) * sy))
+
+    def video_native(self):
+        """스트림 원본 해상도 (w, h). 실패 시 None.
+
+        적응형 비트레이트로 런타임에 바뀐다(실측: 1280x960 → 960x720).
+        캐시하면 클릭 좌표가 그만큼 어긋나므로 매번 조회한다.
+        """
+        try:
+            v = self.send("Runtime.evaluate", {
+                "expression": '(()=>{const v=document.querySelector("video");'
+                              'return v&&v.videoWidth?[v.videoWidth,v.videoHeight]:null})()',
+                "returnByValue": True})["result"]["value"]
+            self._native = tuple(v) if v else None
+        except Exception:
+            self._native = None
+        return self._native
+
+    def capture_game(self):
+        """게임 스트림을 원본 해상도로 캡처한다 (사냥 판독 전용).
+
+        기존 capture()는 CSS 뷰포트 1x 스크린샷이라, 1280x960 스트림이
+        398x299로 축소돼 찍힌다(정보 3.2배 손실 → 채팅 OCR 전멸,
+        아이템 라벨 판독 실패). video를 canvas에 네이티브 크기로 옮겨
+        픽셀을 직접 받으면 원본 선명도를 얻는다. 좌표계는 (0,0)~(vw,vh).
+        로비/로그인 등 video 밖 웹 UI는 찍히지 않으므로 그 용도는
+        기존 capture()를 계속 쓴다. 실패 시 None.
+        """
+        js = ('(()=>{const v=document.querySelector("video");'
+              'if(!v||!v.videoWidth)return null;'
+              'const c=document.createElement("canvas");'
+              'c.width=v.videoWidth;c.height=v.videoHeight;'
+              'c.getContext("2d").drawImage(v,0,0);'
+              'try{return c.toDataURL("image/png")}catch(e){return null}})()')
+        try:
+            val = self.send("Runtime.evaluate",
+                            {"expression": js, "returnByValue": True})
+            data = val.get("result", {}).get("value")
+            if not data or not data.startswith("data:"):
+                return None
+            raw = base64.b64decode(data.split(",", 1)[1])
+            img = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+            if img is not None:
+                # 클릭은 "판독한 그 프레임"의 크기로 환산해야 정합한다.
+                self._game_size = (img.shape[1], img.shape[0])
+            return img
+        except Exception:
+            return None
+
+    def game_click(self, x, y, hover=0.0):
+        """게임 원본 좌표(capture_game 기준) 클릭. CSS 변환 후 터치 전달."""
+        rect = self.video_css_rect()
+        # 방금 판독한 프레임 크기를 우선한다(스트림 해상도가 도중에 바뀌어도
+        # 좌표가 어긋나지 않게). 캡처 이력이 없을 때만 현재 해상도를 조회.
+        native = getattr(self, "_game_size", None) or self.video_native()
+        if not rect or not native:
+            raise RuntimeError("비디오 좌표를 조회하지 못했습니다")
+        cx, cy, cw, ch = rect
+        rx = round(cx + x * cw / native[0])
+        ry = round(cy + y * ch / native[1])
+        self.send("Input.dispatchTouchEvent",
+                  {"type": "touchStart",
+                   "touchPoints": [{"x": rx, "y": ry, "id": 1}]})
+        time.sleep(max(0.12, hover))
+        self.send("Input.dispatchTouchEvent",
+                  {"type": "touchEnd", "touchPoints": []})
+
     def close(self):
         try:
             self.ws.close()

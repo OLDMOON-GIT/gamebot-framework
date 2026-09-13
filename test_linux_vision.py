@@ -1,7 +1,7 @@
 """실물 판독 및 로그인/사망/지역 미확인 상태의 입력 차단을 검증한다."""
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import cv2
 import numpy as np
@@ -214,3 +214,48 @@ class ZoneAndOcrGuardTests(VisionTests):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestHpRead(unittest.TestCase):
+    """hp_read 통합 판독 (BTS-1033250: 풀피 물약 무한소모)."""
+
+    def setUp(self):
+        vision._LAST_HP = None
+        vision._LAST_HP_TS = 0.0
+        self.img = object()
+
+    def _patch(self, ocr, gauge=0.69):
+        return patch.multiple(
+            vision,
+            hp_from_hud_digits=Mock(side_effect=ocr),
+            hp_from_gauge=Mock(return_value=gauge),
+        )
+
+    def test_ocr_값을_그대로_쓴다(self):
+        with self._patch([0.84]):
+            self.assertAlmostEqual(vision.hp_read(self.img), 0.84)
+
+    def test_한_프레임_급락은_유보한다(self):
+        # 206/244가 한 프레임 20/244로 오독돼도 풀피에 물약이 나가면 안 된다.
+        with self._patch([0.844, 0.083]):
+            self.assertAlmostEqual(vision.hp_read(self.img), 0.844)
+            self.assertAlmostEqual(vision.hp_read(self.img), 0.844)
+
+    def test_연속_급락은_두번째에_채택한다(self):
+        # 진짜로 맞아서 떨어진 경우는 한 프레임만 늦게 반영된다.
+        with self._patch([0.9, 0.13, 0.13]):
+            vision.hp_read(self.img)
+            self.assertAlmostEqual(vision.hp_read(self.img), 0.9)
+            self.assertAlmostEqual(vision.hp_read(self.img), 0.13)
+
+    def test_ocr_실패시_게이지로_폴백하지_않는다(self):
+        # 게이지는 HP와 무관한 막대를 잡아 임계 언저리 값을 고착시킨다.
+        with self._patch([0.93, None]) as _:
+            vision.hp_read(self.img)
+            self.assertAlmostEqual(vision.hp_read(self.img), 0.93)
+
+    def test_오래된_값은_버리고_모른다고_답한다(self):
+        with self._patch([0.93, None]):
+            vision.hp_read(self.img)
+            vision._LAST_HP_TS -= vision.HP_STALE_SEC + 1
+            self.assertIsNone(vision.hp_read(self.img))

@@ -14,7 +14,7 @@ import cv2
 
 from cdp_window import CdpWindow
 from item_labels import PICK_RECT, detect_labels
-from linux_vision import hp_from_gauge
+from linux_vision import hp_read
 from user_gate import user_active
 
 RUNTIME = Path("/tmp/linc-bot-linux")
@@ -71,7 +71,7 @@ def learn_potion_slot(w, hp_now):
             return None
         yield_click(w, x, y)
         time.sleep(2.2)
-        hp_after = hp_from_gauge(w.capture())
+        hp_after = hp_read(w.capture())
         if hp_after is not None and hp_after > hp_now + 0.04:
             save_slot(x, y)
             log(f"★ 물약 슬롯 확정 ({x},{y}) HP {hp_now:.2f}→{hp_after:.2f}")
@@ -112,7 +112,7 @@ def main():
                 time.sleep(5)
                 continue
             img = w.capture()
-            hp = hp_from_gauge(img)
+            hp = hp_read(img)
             # --- 물약 ---
             if hp is not None and hp < POTION_HP:
                 if slot is None:

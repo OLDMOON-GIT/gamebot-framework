@@ -20,8 +20,12 @@ HP_RECT = (870, 1002, 230, 36)  # CDP 창 실측(2026-09-07): HP 97/134 위치
 MP_RECT = (1180, 1002, 140, 36)
 # CDP 창에서 tesseract가 슬래시를 못 읽는다(실측). 현재/최대 숫자를
 # 분리 크롭으로 읽어 비율을 구한다.
-HP_CUR_RECT = (955, 1005, 50, 32)
-HP_MAX_RECT = (1010, 1005, 60, 32)
+# HUD HP 숫자 크롭. 종전 (955,1005,50,32)/(1010,1005,60,32)는 실제 텍스트
+# 위치와 어긋나 OCR이 빈 문자열 → 교차검증 폴백이 죽어 있었고, 그 탓에
+# 게이지 트랙 stale 오판독을 아무도 못 걸러냈다(BTS-1033250).
+# 2026-09-10 라이브 재실측값. capture() 프레임(1933x1332) 기준.
+HP_CUR_RECT = (918, 1042, 44, 20)
+HP_MAX_RECT = (963, 1042, 46, 20)
 # HUD HP 게이지: 트랙 334px 실측(2026-09-07). 게이지 막대 위치는 스트림
 # 레이아웃에 따라 y1004와 y1028 두 곳에서 관측됐다(2026-09-09 재접속 후
 # 약 +24px 시프트) → 고정 rect 대신 밴드에서 막대 성분을 찾는다.
@@ -109,6 +113,53 @@ def hp_from_gauge(img):
     if best is None:
         return None
     return float(min(1.0, best / HP_GAUGE_TRACK))
+
+
+# 한 프레임에 이보다 크게 떨어지면 OCR 오독으로 보고 한 프레임 유보한다.
+HP_DROP_GUARD = 0.30
+# OCR이 끊겨도 이 시간까지는 마지막 유효값을 쓴다. 넘으면 None(물약 보류).
+HP_STALE_SEC = 1.5
+_LAST_HP = None
+_LAST_HP_TS = 0.0
+
+
+def hp_read(img):
+    """HP 비율 통합 판독. HUD 숫자(OCR) 우선, 게이지는 폴백.
+
+    게이지 경로를 우선으로 쓰면 안 된다(BTS-1033250): 밴드에서 '가장 넓은
+    빨간 막대'를 고르는 방식이라 HP와 무관한 성분을 잡아 값이 고착되는
+    일이 있다. 2026-09-13 라이브에서 실제 HP가 206→205로 변하는 동안
+    게이지는 237/334=0.7096에 5프레임 고정, OCR은 0.844→0.840으로 정확히
+    추적했다. 0.7096은 물약 임계(0.70) 바로 위라 노이즈만으로 경계를
+    넘나들며 풀피 물약 무한소모를 일으켰다.
+
+    둘 다 실패하면 None. 호출부는 None에서 물약을 쓰지 않는다 — 모르면
+    추측하지 않는 쪽이 안전하다.
+    """
+    global _LAST_HP, _LAST_HP_TS
+    now = time.monotonic()
+
+    value = hp_from_hud_digits(img)
+    if value is None:
+        # 게이지로는 폴백하지 않는다. 라이브에서 OCR이 끊긴 3프레임 동안
+        # 게이지가 0.69를 내놨는데, 실제 HP는 0.93이었다. 임계(0.70)를
+        # 아슬하게 밑도는 값이라 그대로 물약이 나갔다.
+        # 대신 최근 유효값을 짧게 유지하고, 그마저 오래되면 모른다고 답한다.
+        if _LAST_HP is not None and now - _LAST_HP_TS <= HP_STALE_SEC:
+            return _LAST_HP
+        return None
+
+    prev = _LAST_HP
+    _LAST_HP = value
+    _LAST_HP_TS = now
+    if prev is not None and prev - value > HP_DROP_GUARD:
+        # 한 프레임만의 급락은 OCR 자릿수 오독일 때가 많다. 라이브에서
+        # 206/244(0.844)가 한 프레임 20/244(0.083)으로 읽혔고, 그대로
+        # 믿으면 풀피에 물약이 나간다. 이번 프레임은 직전값을 유지하고,
+        # 다음 프레임에도 낮게 나오면 그때 채택된다(_LAST_HP는 이미 갱신).
+        # 진짜 급락이어도 한 프레임(약 0.7초)만 늦다.
+        return prev
+    return value
 
 
 def hp_from_hud_digits(img):

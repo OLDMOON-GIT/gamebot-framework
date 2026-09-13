@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from cdp_window import CdpWindow
-from linux_vision import find_character, hp_from_gauge, red_name_candidates
+from linux_vision import find_character, hp_read, red_name_candidates
 from user_gate import user_active
 
 RUNTIME = Path("/tmp/linc-bot-linux")
@@ -85,7 +85,7 @@ def main():
                 time.sleep(5)
                 continue
             cur = w.capture()
-            hp = hp_from_gauge(cur)
+            hp = hp_read(cur)
             potion_delayed = False
             if hp is not None and hp < 0.45:
                 log(f"HP 위험({hp:.2f}): 이탈 이동")

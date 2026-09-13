@@ -14,7 +14,7 @@ from pathlib import Path
 from cdp_window import CdpWindow
 from chat_watch import pickup_count
 from item_labels import PICK_RECT, detect_labels
-from linux_vision import hp_from_gauge
+from linux_vision import hp_read
 
 RUNTIME = Path("/tmp/linc-bot-linux")
 STOP = RUNTIME / "stop"
@@ -46,7 +46,7 @@ def main():
                 continue
             img = w.capture()
             # HP 낮으면 물약 먼저 (재고 있는 한)
-            hp = hp_from_gauge(img)
+            hp = hp_read(img)
             if hp is not None and hp < 0.6:
                 w.click(*POTION_SPOT, w.geometry())
                 log(f"물약 (HP {hp:.2f})")

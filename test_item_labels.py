@@ -44,8 +44,14 @@ class DetectTests(unittest.TestCase):
         (il.PICK_DY 로 쓰면 어떤 값이든 통과하는 동어반복이 된다).
         """
         img = blank()
-        draw_label(img, 900, 500, 120, 28)
-        lb = il.detect_labels(img, il.PICK_RECT)[0]
+        # PICK_RECT 안쪽에 그린다. 절대좌표를 박아두면 탐색 영역을 실측으로
+        # 조정할 때마다 이 테스트가 무관하게 깨진다(검출 0 → IndexError).
+        x = il.PICK_RECT[0] + 40
+        y = il.PICK_RECT[1] + 130
+        draw_label(img, x, y, 120, 28)
+        found = il.detect_labels(img, il.PICK_RECT)
+        self.assertEqual(len(found), 1, "탐색 영역 안에 그린 라벨은 잡혀야 한다")
+        lb = found[0]
 
         self.assertEqual(lb.click, (lb.cx, lb.bottom + 18))
         # 아이템 스프라이트는 라벨 바로 아래 한 칸 안에 있다

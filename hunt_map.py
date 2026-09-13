@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 from cdp_window import CdpWindow
-from linux_vision import hp_from_gauge
+from linux_vision import hp_read
 import cv2
 import numpy as np
 
@@ -73,7 +73,7 @@ def main():
                 time.sleep(3)
                 continue
             img = w.capture()
-            hp = hp_from_gauge(img)
+            hp = hp_read(img)
             status(running=True, kills=kills, hp=hp, mode="사냥")
             if hp is None:
                 log.info("HP 판독 불가 대기")
@@ -87,7 +87,7 @@ def main():
                 # 재고 소진 감지: 물약을 눌렀는데 HP가 계속 하락/제자리면
                 # 재고가 바닥난 것이다. 사망 방지 위해 즉시 사냥 중단.
                 after = w.capture()
-                hp2 = hp_from_gauge(after)
+                hp2 = hp_read(after)
                 if hp2 is not None and hp2 <= hp + 0.01 and hp2 < 0.5:
                     potion_dry += 1
                 else:
