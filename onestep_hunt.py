@@ -1,24 +1,23 @@
 """한 칸 거리 사냥 — 캐릭터 주변 근접 몹만 잡는다(2026-09-09 사용자 지시).
 
 이동하지 않는다. 캐릭터 근처(260px 이내)에서 움직이는 몹을 클릭해
-자동전투로 잡고, HP 70% 이하면 확정 슬롯(1555,1165) 물약.
+자동전투로 잡고, HP 80% 미만이면 F5/F6 물약(potion_keys 공용 —
+BTS-1033250로 종전 퀵슬롯 좌표 클릭은 폐지).
 모든 터치 전 사용자 양보 게이트. 근접 몹 없으면 대기(배회 없음).
 """
-import json
 import time
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from cdp_window import CdpWindow
+from cdp_window import CdpWindow, EXT_PORT
 from linux_vision import find_character, hp_read, red_name_candidates
+from potion_keys import EXHAUSTED, USED, PotionKeys
 from user_gate import user_active
 
 RUNTIME = Path("/tmp/linc-bot-linux")
 STOP = RUNTIME / "stop"
-POTION_HP = 0.70
-POTION_SLOT = (1552, 1221)   # 2026-09-09 실측: 재고95개 표시 슬롯(아래 행)
 NEAR_RADIUS = 260            # 한 칸~두 칸: 캐릭터 중심 이 반경 몹만
 
 
@@ -75,10 +74,11 @@ def near_mobs(prev, cur, char):
 
 def main():
     STOP.unlink(missing_ok=True)
-    w = CdpWindow()
+    w = CdpWindow(port=EXT_PORT)
     log("한 칸 거리 사냥 시작(이동 없음, 근접 몹만)")
     kills = 0
     prev = None
+    potion = PotionKeys()
     while not STOP.exists():
         try:
             if not w.active():
@@ -92,11 +92,11 @@ def main():
                 yield_click(w, 620, 400)  # 한 칸 원칙이지만 생존 우선
                 time.sleep(2.5)
                 continue
-            if hp is not None and hp < POTION_HP:
-                yield_click(w, *POTION_SLOT)
-                log(f"물약 (HP {hp:.2f})")
-                time.sleep(1.5)
-                potion_delayed = True  # 물약 후에도 몹 공격은 이어간다
+            result = potion.check(w, hp)
+            if result == EXHAUSTED:
+                log("물약 재고 소진 — 사냥 중단(사망 방지)")
+                break
+            potion_delayed = result == USED  # 물약 후에도 몹 공격은 이어간다
             if prev is None or prev.shape != cur.shape:
                 prev = cur
                 time.sleep(2.5)
@@ -123,7 +123,7 @@ def main():
             except Exception:
                 pass
             try:
-                w = CdpWindow()
+                w = CdpWindow(port=EXT_PORT)
             except Exception:
                 pass
     log(f"종료 — 공격 {kills}회")

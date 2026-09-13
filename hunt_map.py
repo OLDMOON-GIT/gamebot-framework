@@ -4,7 +4,7 @@
 - 미니맵 빨간 점 = 몹 위치 (중심 1810,195 = 자기)
 - HUD HP 게이지 = 체력 (트랙 334px)
 - 터치 탭 = 이동/공격 (웹플레이는 터치 입력 소비)
-- 퀵슬롯 (1590,1255) = 물약
+- 물약 = F5/F6 키 (potion_keys 공용, BTS-1033250 폐지 슬롯 클릭)
 하이네 잡밭(7시 방향)이 저레벨 몹 밀집지다(인벤 지도 데이터).
 """
 import argparse
@@ -13,8 +13,9 @@ import logging
 import time
 from pathlib import Path
 
-from cdp_window import CdpWindow
+from cdp_window import CdpWindow, EXT_PORT
 from linux_vision import hp_read
+from potion_keys import EXHAUSTED, USED, PotionKeys
 import cv2
 import numpy as np
 
@@ -23,8 +24,6 @@ STOP = RUNTIME / "stop"
 STATUS = RUNTIME / "status.json"
 MINIMAP = (1700, 105, 220, 185)   # 미니맵 내부
 CHAR_CENTER = (1810, 195)          # 미니맵 중심 = 자기 캐릭터
-POTION_SPOT = (1590, 1255)         # 퀵슬롯 물약
-POTION_HP = 0.70
 
 
 def status(**kw):
@@ -55,11 +54,11 @@ def main():
     STOP.unlink(missing_ok=True)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s",
                         handlers=[logging.StreamHandler()])
-    w = CdpWindow()
+    w = CdpWindow(port=EXT_PORT)
+    potion = PotionKeys()
     deadline = time.monotonic() + args.seconds
     kills = 0
     prev_hp = None
-    potion_dry = 0
     log = logging.getLogger("hunt")
     log.info("미니맵 사냥 시작 (중심=%s)", CHAR_CENTER)
     try:
@@ -79,23 +78,14 @@ def main():
                 log.info("HP 판독 불가 대기")
                 time.sleep(2)
                 continue
-            # 물약: HP 게이지 기준, 퀵슬롯 터치
-            if hp < POTION_HP:
-                w.click(*POTION_SPOT, w.geometry())
-                log.info("물약 (HP %.2f)", hp)
+            # 물약: F5/F6 공용 모듈(2프레임 확인·쿨다운·재고 소진 감지 내장)
+            result = potion.check(w, hp)
+            if result == EXHAUSTED:
+                log.info("물약 재고 소진 추정: 사냥 중단 (사망 방지)")
+                status(running=False, kills=kills, hp=hp, mode="물약부족중지")
+                return
+            if result == USED:
                 time.sleep(1.2)
-                # 재고 소진 감지: 물약을 눌렀는데 HP가 계속 하락/제자리면
-                # 재고가 바닥난 것이다. 사망 방지 위해 즉시 사냥 중단.
-                after = w.capture()
-                hp2 = hp_read(after)
-                if hp2 is not None and hp2 <= hp + 0.01 and hp2 < 0.5:
-                    potion_dry += 1
-                else:
-                    potion_dry = 0
-                if potion_dry >= 3:
-                    log.info("물약 재고 소진 추정: 사냥 중단 (사망 방지)")
-                    status(running=False, kills=kills, hp=hp, mode="물약부족중지")
-                    return
                 continue
             # 자동전투 중(HP 하락) 개입 금지
             if prev_hp is not None and hp < prev_hp - 0.02:

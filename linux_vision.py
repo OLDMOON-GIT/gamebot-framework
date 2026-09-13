@@ -24,8 +24,12 @@ MP_RECT = (1180, 1002, 140, 36)
 # 위치와 어긋나 OCR이 빈 문자열 → 교차검증 폴백이 죽어 있었고, 그 탓에
 # 게이지 트랙 stale 오판독을 아무도 못 걸러냈다(BTS-1033250).
 # 2026-09-10 라이브 재실측값. capture() 프레임(1933x1332) 기준.
-HP_CUR_RECT = (918, 1042, 44, 20)
-HP_MAX_RECT = (963, 1042, 46, 20)
+# 재접속마다 HUD가 수직 시프트한다(2026-09-13 실측: 게이지 y1040→1029,
+# 텍스트도 동일 -11px) → ZONE_RECTS처럼 후보를 순서대로 시도한다.
+HP_CUR_RECTS = ((918, 1042, 44, 20),   # 2026-09-10 레이아웃
+                (905, 1030, 97, 24))   # 2026-09-13 시프트 레이아웃(253/253 실측)
+HP_MAX_RECTS = ((963, 1042, 46, 20),
+                (1018, 1030, 57, 24))
 # HUD HP 게이지: 트랙 334px 실측(2026-09-07). 게이지 막대 위치는 스트림
 # 레이아웃에 따라 y1004와 y1028 두 곳에서 관측됐다(2026-09-09 재접속 후
 # 약 +24px 시프트) → 고정 rect 대신 밴드에서 막대 성분을 찾는다.
@@ -129,6 +133,7 @@ HP_CROSS_GUARD = 0.15
 _LAST_HP = None
 _LAST_HP_TS = 0.0
 _LAST_MAX = None
+_LAST_RECT_IDX = 0    # 최근 성공 HP 숫자 rect 후보 인덱스
 
 
 def hp_read(img):
@@ -180,24 +185,35 @@ def hp_from_hud_digits(img):
     CDP 창 실측(2026-09-07): 슬래시가 OCR에서 유실돼 'HP94134'처럼 붙어
     나온다. 숫자 영역을 나눠 읽으면 슬래시 없이 비율을 확정할 수 있다.
 
-    분모(최대 HP) 점프 가드(BTS-1033250): 244→24처럼 분모가 한 프레임에
-    바뀌면 오독으로 본다. 이번 프레임은 버리고 관측값을 기록해, 다음
-    프레임도 같은 분모면(실제 레벨업) 그때 승인한다 — 급락 가드와 같은
-    '1프레임 유보' 철학.
+    재접속 시프트 대응(BTS-1033250): HP_CUR/HP_MAX_RECTS 후보를 순서대로
+    시도한다. 최근 성공 후보를 먼저 시도해 시프트 후 프레임 낭비를 줄인다.
+
+    분모(최대 HP) 점프 가드(BTS-1033250): 244→344처럼 분모가 한 프레임에
+    바뀌면 오독으로 본다(감소 방향 244→24는 low<=high 검증이 이미 차단).
+    이번 프레임은 버리고 관측값을 기록해, 다음 프레임도 같은 분모면
+    (실제 레벨업) 그때 승인한다 — 급락 가드와 같은 '1프레임 유보' 철학.
     """
-    global _LAST_MAX
-    current = ocr(crop(img, HP_CUR_RECT), whitelist="0123456789")
-    maximum = ocr(crop(img, HP_MAX_RECT), whitelist="0123456789")
-    if not isinstance(current, str) or not isinstance(maximum, str):
-        return None  # OCR 실패(None) 시 추측하지 않는다
-    if current.strip().isdigit() and maximum.strip().isdigit():
-        low, high = int(current), int(maximum)
-        if 0 < high and low <= high:
-            if _LAST_MAX is not None and high != _LAST_MAX:
-                _LAST_MAX = high  # 관측은 기록(다음 프레임 일치 시 승인)
-                return None       # 분모 점프 프레임은 오독으로 유보
-            _LAST_MAX = high
-            return low / high
+    global _LAST_MAX, _LAST_RECT_IDX
+    order = ([_LAST_RECT_IDX]
+             + [i for i in range(len(HP_CUR_RECTS)) if i != _LAST_RECT_IDX])
+    for idx in order:
+        current = ocr(crop(img, HP_CUR_RECTS[idx]), whitelist="0123456789")
+        maximum = ocr(crop(img, HP_MAX_RECTS[idx]), whitelist="0123456789")
+        if not isinstance(current, str) or not isinstance(maximum, str):
+            continue  # OCR 실패(None) — 다음 후보
+        cs, ms = current.strip(), maximum.strip()
+        if not (cs.isdigit() and ms.isdigit()):
+            continue
+        low, high = int(cs), int(ms)
+        if not (0 < high and low <= high):
+            continue
+        if _LAST_MAX is not None and high != _LAST_MAX:
+            _LAST_MAX = high   # 관측은 기록(다음 프레임 일치 시 승인)
+            _LAST_RECT_IDX = idx
+            return None        # 분모 점프 프레임은 오독으로 유보
+        _LAST_MAX = high
+        _LAST_RECT_IDX = idx
+        return low / high
     return None
 
 

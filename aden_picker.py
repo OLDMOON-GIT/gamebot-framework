@@ -11,14 +11,14 @@
 import time
 from pathlib import Path
 
-from cdp_window import CdpWindow
+from cdp_window import CdpWindow, EXT_PORT
 from chat_watch import pickup_count
 from item_labels import PICK_RECT, detect_labels
 from linux_vision import hp_read
+from potion_keys import EXHAUSTED, USED, PotionKeys
 
 RUNTIME = Path("/tmp/linc-bot-linux")
 STOP = RUNTIME / "stop"
-POTION_SPOT = (1600, 1255)
 GRID = 20          # 블랙리스트/대조용 좌표 격자 크기(px)
 BLACKLIST_TTL = 60  # 블랙리스트 유효 시간(초) — 캐릭터가 이동하면 화면 좌표가
                     # 달라지므로 영구 차단하면 멀쩡한 아이템까지 막힌다.
@@ -35,7 +35,8 @@ def log(msg):
 
 def main():
     STOP.unlink(missing_ok=True)
-    w = CdpWindow()
+    w = CdpWindow(port=EXT_PORT)
+    potion = PotionKeys()
     blacklist = {}  # 격자셀 -> 등록시각
     picked = 0
     log("아덴 줍기 시작")
@@ -45,11 +46,13 @@ def main():
                 time.sleep(5)
                 continue
             img = w.capture()
-            # HP 낮으면 물약 먼저 (재고 있는 한)
+            # HP 낮으면 물약 먼저 (F5/F6 공용 모듈, 재고 있는 한)
             hp = hp_read(img)
-            if hp is not None and hp < 0.6:
-                w.click(*POTION_SPOT, w.geometry())
-                log(f"물약 (HP {hp:.2f})")
+            result = potion.check(w, hp)
+            if result == EXHAUSTED:
+                log("물약 재고 소진 — 줍기 중단(보급 필요)")
+                break
+            if result == USED:
                 time.sleep(1.5)
                 continue
 
@@ -98,7 +101,7 @@ def main():
             except Exception:
                 pass
             try:
-                w = CdpWindow()
+                w = CdpWindow(port=EXT_PORT)
             except Exception:
                 pass
     log(f"종료 — 줍기 성공 {picked}")

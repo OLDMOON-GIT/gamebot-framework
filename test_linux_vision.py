@@ -1,6 +1,7 @@
 """실물 판독 및 로그인/사망/지역 미확인 상태의 입력 차단을 검증한다."""
 import os
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import cv2
@@ -212,50 +213,190 @@ class ZoneAndOcrGuardTests(VisionTests):
             self.assertIsNone(vision.hp_from_hud_digits(self.frame))
 
 
-if __name__ == "__main__":
-    unittest.main()
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
+
+def _gauge_frame(bar_w, bar_h=29, hl_w=232, hl_h=6):
+    """HP_GAUGE_BAND에 진짜 막대(h29) + 테두리 하이라이트(h6)를 그은 합성 프레임.
+
+    위치/높이는 fixture 실측(2026-09-13): 막대 (x57,y60,h29),
+    하이라이트 (x59,y53,h6). BGR(60,60,200)은 게이지 빨강 마스크를
+    통과하는 색이라 성분 검출 경로가 실제와 같다.
+    """
+    img = np.zeros((1332, 1933, 3), np.uint8)
+    bx, by, _, _ = vision.HP_GAUGE_BAND
+    if bar_w > 0:
+        img[by + 60:by + 60 + bar_h, bx + 57:bx + 57 + bar_w] = (60, 60, 200)
+    if hl_w > 0:
+        img[by + 53:by + 53 + hl_h, bx + 59:bx + 59 + hl_w] = (60, 60, 190)
+    return img
+
+
+class TestHpGaugeSynthetic(unittest.TestCase):
+    """hp_from_gauge 합성 회귀 (BTS-1033250 — 트랙 334px 기준)."""
+
+    def setUp(self):
+        vision._LAST_HP = None
+        vision._LAST_HP_TS = 0.0
+        vision._LAST_MAX = None
+        vision._LAST_RECT_IDX = 0
+
+    def test_풀막대는_1점을_내놓는다(self):
+        self.assertAlmostEqual(vision.hp_from_gauge(_gauge_frame(334)),
+                               1.0, delta=0.02)
+
+    def test_반막대는_0점5를_내놓는다(self):
+        self.assertAlmostEqual(vision.hp_from_gauge(_gauge_frame(167)),
+                               0.50, delta=0.02)
+
+    def test_막대_없으면_하이라이트만_으로는_None이다(self):
+        # HP와 무관한 6px 테두리 하이라이트(w232)를 막대로 오인하면
+        # 232/334=0.695를 반환 → 물약 임계 근처 고착(종전 버그 재발).
+        self.assertIsNone(vision.hp_from_gauge(_gauge_frame(0)))
+
+    def test_HP_낮을때_하이라이트가_더_넓어도_막대_폭을_잰다(self):
+        # 막대 150px(HP 45%) vs 하이라이트 232px: '가장 넓은 성분'을 고르면
+        # 하이라이트가 이겨 0.695로 옮겨 붙는다. 진짜 막대 폭을 봐야 한다.
+        self.assertAlmostEqual(vision.hp_from_gauge(_gauge_frame(150)),
+                               150 / 334, delta=0.02)
+
+
+class TestHpGaugeFixture(unittest.TestCase):
+    """실측 프레임 고정 회귀 — HP 202/244(만피 아님) fixtures/hp_202_244.png.
+
+    만피 프레임으로는 이 버그를 못 잡는다(하이라이트도 풀폭이라).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.frame = cv2.imread(str(FIXTURES / "hp_202_244.png"))
+        assert cls.frame is not None, "fixtures/hp_202_244.png 없음"
+        assert cls.frame.shape[:2] == (1332, 1933), cls.frame.shape
+
+    def setUp(self):
+        vision._LAST_HP = None
+        vision._LAST_HP_TS = 0.0
+        vision._LAST_MAX = None
+        vision._LAST_RECT_IDX = 0
+
+    def test_게이지가_OCR과_일치한다(self):
+        # 종전 오판독: 풀피를 0.7036으로 읽어 물약 무한 소모.
+        self.assertAlmostEqual(vision.hp_from_gauge(self.frame),
+                               202 / 244, delta=0.02)
+
+    def test_hp_read가_OCR_정밀값을_낸다(self):
+        self.assertAlmostEqual(vision.hp_read(self.frame),
+                               202 / 244, delta=0.01)
 
 
 class TestHpRead(unittest.TestCase):
-    """hp_read 통합 판독 (BTS-1033250: 풀피 물약 무한소모)."""
+    """hp_read 통합 판독 (BTS-1033250 — 게이지 height 필터 수정 후 스펙)."""
 
     def setUp(self):
         vision._LAST_HP = None
         vision._LAST_HP_TS = 0.0
         self.img = object()
 
-    def _patch(self, ocr, gauge=0.69):
+    def _patch(self, ocr, gauge=None):
+        gauge_mock = (Mock(side_effect=gauge) if isinstance(gauge, list)
+                      else Mock(return_value=gauge))
         return patch.multiple(
             vision,
             hp_from_hud_digits=Mock(side_effect=ocr),
-            hp_from_gauge=Mock(return_value=gauge),
+            hp_from_gauge=gauge_mock,
         )
 
-    def test_ocr_값을_그대로_쓴다(self):
-        with self._patch([0.84]):
-            self.assertAlmostEqual(vision.hp_read(self.img), 0.84)
-
-    def test_한_프레임_급락은_유보한다(self):
-        # 206/244가 한 프레임 20/244로 오독돼도 풀피에 물약이 나가면 안 된다.
-        with self._patch([0.844, 0.083]):
-            self.assertAlmostEqual(vision.hp_read(self.img), 0.844)
+    def test_ocr와_게이지가_일치하면_ocr_정밀값을_쓴다(self):
+        # OCR 206/244=0.844 vs 게이지 279/334=0.835 — 정상 프레임.
+        with self._patch([0.844], gauge=0.835):
             self.assertAlmostEqual(vision.hp_read(self.img), 0.844)
 
-    def test_연속_급락은_두번째에_채택한다(self):
-        # 진짜로 맞아서 떨어진 경우는 한 프레임만 늦게 반영된다.
-        with self._patch([0.9, 0.13, 0.13]):
-            vision.hp_read(self.img)
-            self.assertAlmostEqual(vision.hp_read(self.img), 0.9)
-            self.assertAlmostEqual(vision.hp_read(self.img), 0.13)
+    def test_ocr_오독_급락은_게이지로_교정한다(self):
+        # 라이브 실측: 206/244가 한 프레임 20/244(0.083)로 오독 — 게이지
+        # 0.83과 0.75 벌어짐. 0.083을 그대로 반환하면 물약 연타/귀환 사고.
+        with self._patch([0.844, 0.083], gauge=0.83):
+            self.assertAlmostEqual(vision.hp_read(self.img), 0.844)
+            self.assertAlmostEqual(vision.hp_read(self.img), 0.83)
 
-    def test_ocr_실패시_게이지로_폴백하지_않는다(self):
-        # 게이지는 HP와 무관한 막대를 잡아 임계 언저리 값을 고착시킨다.
-        with self._patch([0.93, None]) as _:
-            vision.hp_read(self.img)
+    def test_ocr_실패시_게이지로_폴백한다(self):
+        # 게이지는 height 필터 수정(2026-09-13 실측)으로 신뢰 회복.
+        with self._patch([None], gauge=0.83):
+            self.assertAlmostEqual(vision.hp_read(self.img), 0.83)
+
+    def test_둘다_실패시_최근값을_짧게_유지한다(self):
+        with self._patch([0.93, None], gauge=None):
+            self.assertAlmostEqual(vision.hp_read(self.img), 0.93)
             self.assertAlmostEqual(vision.hp_read(self.img), 0.93)
 
     def test_오래된_값은_버리고_모른다고_답한다(self):
-        with self._patch([0.93, None]):
+        with self._patch([0.93, None], gauge=None):
             vision.hp_read(self.img)
             vision._LAST_HP_TS -= vision.HP_STALE_SEC + 1
             self.assertIsNone(vision.hp_read(self.img))
+
+    def test_진짜_급락은_두번째_프레임에_채택한다(self):
+        # 게이지가 HP를 따라 내려오는(=진짜) 급락: 1프레임 유보 후 채택.
+        with self._patch([0.9, 0.13, 0.13], gauge=[0.88, 0.15, 0.15]):
+            self.assertAlmostEqual(vision.hp_read(self.img), 0.9)
+            self.assertAlmostEqual(vision.hp_read(self.img), 0.9)
+            self.assertAlmostEqual(vision.hp_read(self.img), 0.13)
+
+
+class TestHpDenominatorGuard(unittest.TestCase):
+    """분모(최대 HP) 점프 오독 가드 (BTS-1033250)."""
+
+    def setUp(self):
+        vision._LAST_MAX = None
+        vision._LAST_RECT_IDX = 0
+        self.frame = np.zeros((1332, 1933, 3), np.uint8)
+
+    def _ocr(self, texts):
+        return patch.object(vision, "ocr", side_effect=texts)
+
+    def test_분모_점프_프레임은_유보하고_복귀후_승인한다(self):
+        # max가 증가 방향으로 오독(244→344)되면 low<=high 검증을 통과해
+        # 205/344=0.596으로 급락 — 분모가드가 1프레임 유보로 막는다.
+        # 감소 방향(244→24)은 low<=high에서 이미 차단된다(별도 테스트).
+        with self._ocr(["206", "244",
+                        "205", "344",
+                        "204", "244",
+                        "203", "244"]):
+            self.assertAlmostEqual(vision.hp_from_hud_digits(self.frame),
+                                   206 / 244)
+            self.assertIsNone(vision.hp_from_hud_digits(self.frame))
+            self.assertIsNone(vision.hp_from_hud_digits(self.frame))
+            self.assertAlmostEqual(vision.hp_from_hud_digits(self.frame),
+                                   203 / 244)
+
+    def test_분모_감소_오독은_low_le_high_검증이_차단한다(self):
+        # max 244→24 오독: current(205) > maximum(24)라 기존 검증에서 후보
+        # 탈락(후보를 1개로 고정해 순차 시도 효과를 제거하고 검증).
+        with self._ocr(["206", "244", "205", "24", "204", "244"]), \
+                patch.object(vision, "HP_CUR_RECTS", vision.HP_CUR_RECTS[:1]), \
+                patch.object(vision, "HP_MAX_RECTS", vision.HP_MAX_RECTS[:1]):
+            self.assertAlmostEqual(vision.hp_from_hud_digits(self.frame),
+                                   206 / 244)
+            self.assertIsNone(vision.hp_from_hud_digits(self.frame))
+            self.assertAlmostEqual(vision.hp_from_hud_digits(self.frame),
+                                   204 / 244)
+
+    def test_후보_rect를_순차_시도해_시프트를_흡수한다(self):
+        # 후보0(구 레이아웃)이 빈 문자열 → 후보1(2026-09-13 시프트) 채택.
+        with self._ocr(["", "", "253", "253"]):
+            self.assertAlmostEqual(vision.hp_from_hud_digits(self.frame), 1.0)
+            self.assertEqual(vision._LAST_RECT_IDX, 1)
+        # 다음 프레임은 최근 성공 후보(1)부터 — 후보0을 건너뛴다.
+        with self._ocr(["253", "253"]):
+            self.assertAlmostEqual(vision.hp_from_hud_digits(self.frame), 1.0)
+
+    def test_레벨업_분모_변경은_다음_프레임에_승인한다(self):
+        with self._ocr(["206", "244", "205", "260", "250", "260"]):
+            self.assertAlmostEqual(vision.hp_from_hud_digits(self.frame),
+                                   206 / 244)
+            self.assertIsNone(vision.hp_from_hud_digits(self.frame))
+            self.assertAlmostEqual(vision.hp_from_hud_digits(self.frame),
+                                   250 / 260)
+
+
+if __name__ == "__main__":
+    unittest.main()
