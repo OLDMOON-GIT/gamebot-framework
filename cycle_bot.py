@@ -701,6 +701,8 @@ class CycleBot:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cdp", action="store_true", help="CDP 크롬 백엔드")
+    parser.add_argument("--ext", action="store_true",
+                        help="크롬 익스텐션 브리지 백엔드(ext_bridge.py, BTS-1033280)")
     parser.add_argument("--seconds", type=float, default=3600)
     parser.add_argument("--interval", type=float, default=3.0)
     args = parser.parse_args()
@@ -708,7 +710,10 @@ def main():
     STOP_PATH.unlink(missing_ok=True)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    if args.cdp:
+    if args.ext:
+        from cdp_window import CdpWindow, EXT_PORT
+        window = CdpWindow(port=EXT_PORT)
+    elif args.cdp:
         from cdp_window import CdpWindow
         window = CdpWindow()
     else:

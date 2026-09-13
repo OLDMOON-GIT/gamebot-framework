@@ -1,4 +1,5 @@
 #!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 한/영 입력기(fcitx5) 연결 — 이 환경변수가 없으면 크롬이 입력기에 붙지 못해 한영키가 먹지 않음
 # GTK3 모듈명은 반드시 fcitx5. 'fcitx'로 두면 모듈이 없어 XIM으로 폴백되고,
 # XIM은 fcitx 비활성(-c)을 무시해 한글→영문 복귀가 안 된다(검증: gedit 왕복 테스트).
@@ -41,6 +42,7 @@ while true; do
   pgrep -x fcitx5 >/dev/null || (setsid fcitx5 -d >/dev/null 2>&1 &)
   /home/oldmoon/.cache/ms-playwright/chromium-1234/chrome-linux/chrome \
     --remote-debugging-port=9333 --remote-allow-origins='*' \
+    --load-extension="$SCRIPT_DIR/extension,$SCRIPT_DIR/linc-vision-ext" --silent-debugger-extension-api \
     --user-data-dir=/home/oldmoon/.purpleon-profile \
     --disable-backgrounding-occluded-windows \
     --disable-features=CalculateNativeWinOcclusion \

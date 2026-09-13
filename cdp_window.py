@@ -19,6 +19,9 @@ from linux_vision import WINDOW_SIZE
 
 
 CDP_PORT = 9333
+# BTS-1033280: 크롬 익스텐션 브리지(ext_bridge.py) 포트. 크롬 원격 디버깅과
+# 같은 /json + devtools ws 를 흉내내므로 CdpWindow(port=EXT_PORT) 로 그대로 붙는다.
+EXT_PORT = 9335
 # 캘리브레이션과 동일한 뷰포트를 강제해 X11 판독 좌표계를 그대로 쓴다.
 VIEWPORT = {"width": WINDOW_SIZE[0], "height": WINDOW_SIZE[1],
             "deviceScaleFactor": 1, "mobile": False}
