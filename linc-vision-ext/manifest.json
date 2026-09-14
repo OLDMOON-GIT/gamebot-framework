@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "LINC Vision Bridge",
+  "version": "1.0.0",
+  "description": "웹플레이 video 엘리먼트의 네이티브 프레임(1280x960)을 로컬 봇으로 전달한다. 창 크기/전체화면/가림/포커스와 무관하게 동작한다.",
+  "host_permissions": [
+    "http://127.0.0.1:17311/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://purpleon.plaync.com/webplay/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}
