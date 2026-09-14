@@ -25,9 +25,17 @@ def log(msg):
     print(time.strftime("%H:%M:%S"), msg, flush=True)
 
 
-def yield_click(w, x, y):
+class UserBusy(Exception):
+    """사용자가 계속 조작 중 — 이번 터치는 포기한다(강행 금지)."""
+
+
+def yield_click(w, x, y, max_wait=120):
+    """사용자 양보 후 클릭. 한도까지 기다려도 사용자가 손을 안 떼면 클릭하지
+    않고 UserBusy 를 던진다(종전엔 120초 뒤 강행 → '또 마우스' 재발 경로)."""
     waited = 0
-    while user_active() and waited < 120 and not STOP.exists():
+    while user_active() and not STOP.exists():
+        if waited >= max_wait:
+            raise UserBusy(f"사용자 조작 {waited}s 지속 — 터치 생략")
         time.sleep(2.0)
         waited += 2
     if STOP.exists():
@@ -77,6 +85,7 @@ def main():
     w = CdpWindow(port=EXT_PORT)
     log("한 칸 거리 사냥 시작(이동 없음, 근접 몹만)")
     kills = 0
+    hp_unread = 0
     prev = None
     potion = PotionKeys()
     while not STOP.exists():
@@ -87,7 +96,18 @@ def main():
             cur = w.capture()
             hp = hp_read(cur)
             potion_delayed = False
-            if hp is not None and hp < 0.45:
+            if hp is None:
+                # HP 판독 불가 = 물약/이탈 모두 무력. 이 상태로 몹을 치면
+                # 사망 경로다(리뷰). 공격 보류, 지속 시 사망 방지 중단.
+                hp_unread += 1
+                if hp_unread >= 12:
+                    log("HP 판독 불가 지속 — 사냥 중단(사망 방지)")
+                    break
+                log(f"HP 판독 불가({hp_unread}/12): 공격 보류")
+                time.sleep(2.5)
+                continue
+            hp_unread = 0
+            if hp < 0.45:
                 log(f"HP 위험({hp:.2f}): 이탈 이동")
                 yield_click(w, 620, 400)  # 한 칸 원칙이지만 생존 우선
                 time.sleep(2.5)
@@ -115,6 +135,10 @@ def main():
             prev = None      # 전투 후 재기준
         except SystemExit:
             break
+        except UserBusy as exc:
+            log(str(exc))
+            prev = None
+            time.sleep(2.5)
         except Exception as exc:
             log(f"오류: {exc} — 재접속")
             time.sleep(5)

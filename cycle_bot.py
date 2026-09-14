@@ -631,10 +631,21 @@ class CycleBot:
                 logging.info("사냥터 당일 제외: %s", name)
         elif reason in ("ats_time_over", "unknown", "manager_stop"):
             self.emergency_returns.pop(name, None)
+        # 판독 불가(view None / hp None)를 "귀환 완료"로 오판하면 안 된다.
+        # 사망 시 analyze 가 None 을 내는 경로(162~167행)와 맞물려 죽은 캐릭터를
+        # in_town=True 로 두고 보급까지 진행하던 CRIT. 확인될 때까지 RETURN 유지,
+        # 연속 한도 초과면 사람 확인으로 종료한다.
+        if view is None or view.get("hp") is None:
+            self._return_unreadable += 1
+            if self._return_unreadable >= 10:
+                return "END", "귀환 확인 불가 지속: 사람 확인 필요(사망/판독 불가)"
+            return "RETURN", (f"귀환 확인 불가: 판독 대기"
+                              f"({self._return_unreadable}/10)")
+        self._return_unreadable = 0
         self.log_cycle(reason)
         self.return_reason = None
         self._dead_waits = 0
-        alive_in_field = (view is not None and 0 < (view.get("hp") or 0)
+        alive_in_field = (0 < (view.get("hp") or 0)
                           and not view.get("safe_zone"))
         if alive_in_field:
             self._return_attempts += 1

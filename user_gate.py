@@ -26,8 +26,20 @@ def _active_window(dpy, root):
     return int(prop.value[0]) if prop and prop.value else 0
 
 
+def _keys_down(dpy):
+    """현재 눌린 키가 하나라도 있으면 True(키보드 조작 감지).
+
+    query_keymap 은 눌린 키의 비트맵(32바이트)을 준다. 포인터만 보던 종전
+    게이트는 키보드만 쓰는 사용자(채팅/단축키)를 '없음'으로 봤다(리뷰 지적).
+    """
+    try:
+        return any(dpy.query_keymap())
+    except Exception:
+        return False
+
+
 def user_active(observe=_OBSERVE_SECONDS, poll=_POLL):
-    """관찰 구간 동안 사용자 입력(포인터 이동/활성창 전환)이 있으면 True."""
+    """관찰 구간 동안 사용자 입력(포인터 이동/활성창 전환/키 입력)이 있으면 True."""
     if os.environ.get("LINC_SKIP_USER_GATE") == "1":
         return False  # 테스트/긴급 수동 스위치
     try:
@@ -41,7 +53,7 @@ def user_active(observe=_OBSERVE_SECONDS, poll=_POLL):
         while time.monotonic() < deadline:
             time.sleep(poll)
             now = (_pointer_state(dpy, root), _active_window(dpy, root))
-            if now != start:
+            if now != start or _keys_down(dpy):
                 return True
         return False
     finally:

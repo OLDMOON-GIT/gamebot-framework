@@ -520,6 +520,47 @@ class LoopGuardTests(IsolatedLogCase):
                 bot.step()
         self.assertEqual(bot.state, "END")
 
+    def test_return_unreadable_view_is_not_town(self):
+        """view=None(사망→analyze None / 캡처 실패)을 '귀환 완료'로 오판하면 안 된다.
+
+        기존: run_return(None) → in_town=True, TOWN 으로 전진해 죽은 캐릭터로 보급까지 감.
+        """
+        bot, _ = make_bot(return_scroll=None)
+        bot.current_ground = "A터"
+        bot.return_reason = "hp_danger"
+        state, msg = bot.run_return(None)
+        self.assertEqual(state, "RETURN")
+        self.assertFalse(bot.in_town)
+        self.assertIn("확인 불가", msg)
+        # hp None 도 동일하게 미확인
+        v = view(0.9)
+        v["hp"] = None
+        state, _ = bot.run_return(v)
+        self.assertEqual(state, "RETURN")
+        self.assertFalse(bot.in_town)
+        self.assertEqual(bot._return_unreadable, 2)
+
+    def test_return_unreadable_persist_ends_for_human(self):
+        """판독 불가가 10회 연속이면 사람 확인 END. 그 전에 판독되면 카운터 리셋."""
+        bot, _ = make_bot(return_scroll=None)
+        bot.current_ground = "A터"
+        bot.return_reason = "unknown"
+        for _ in range(9):
+            state, _ = bot.run_return(None)
+            self.assertEqual(state, "RETURN")
+        # 마을 판독 성공 → 정상 귀환 완료 + 카운터 리셋
+        town = view(0.9)
+        town["safe_zone"] = True
+        state, _ = bot.run_return(town)
+        self.assertEqual(state, "TOWN")
+        self.assertTrue(bot.in_town)
+        self.assertEqual(bot._return_unreadable, 0)
+        bot.in_town = False
+        for _ in range(10):
+            state, _ = bot.run_return(None)
+        self.assertEqual(state, "END")
+        self.assertFalse(bot.in_town)
+
     def test_blocked_ready_state_times_out(self):
         """hp는 있으나 ready=False(패널)가 120초 지속되면 안전 종료."""
         bot, _ = make_bot()
