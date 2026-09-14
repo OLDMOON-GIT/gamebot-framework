@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>linc-bot</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<header>
+  <div class="title">linc-bot</div>
+  <div class="conn">
+    <span id="bridge" class="dot" title="브리지(ext_bridge.py :9335)"></span><span>브리지</span>
+    <span id="ext" class="dot" title="확장 ↔ 브리지 연결"></span><span>확장</span>
+  </div>
+</header>
+
+<section class="status">
+  <div class="row">
+    <span class="label">봇</span>
+    <span id="botstate" class="badge off">정지</span>
+    <span id="uptime" class="muted"></span>
+  </div>
+  <div id="last" class="last muted"></div>
+</section>
+
+<section class="controls">
+  <div class="opts">
+    <label>사냥 <input id="seconds" type="number" min="60" step="60" value="3600"> 초</label>
+    <label>주기 <input id="interval" type="number" min="0.5" step="0.5" value="2"> 초</label>
+  </div>
+  <div class="btns">
+    <button id="start" class="primary">▶ 시작</button>
+    <button id="stop">■ 중지(귀환)</button>
+    <button id="kill" class="danger" title="즉시 프로세스 종료">✕ 강제</button>
+  </div>
+</section>
+
+<section class="tabs">
+  <div class="row"><span class="label">퍼플 탭</span><button id="refreshTabs" class="small">새로고침</button></div>
+  <ul id="tablist"></ul>
+</section>
+
+<section class="log">
+  <div class="row"><span class="label">로그</span><button id="clearLog" class="small">지우기</button></div>
+  <pre id="log"></pre>
+</section>
+
+<div id="toast" hidden></div>
+<script src="popup.js"></script>
+</body>
+</html>

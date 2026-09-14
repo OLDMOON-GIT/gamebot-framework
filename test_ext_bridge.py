@@ -53,11 +53,7 @@ class BridgeThread:
         return self.bridge.port
 
     async def _shutdown(self):
-        self.bridge.server.close(close_connections=True)
-        try:
-            await asyncio.wait_for(self.bridge.server.wait_closed(), 3)
-        except asyncio.TimeoutError:
-            pass
+        await self.bridge.close()
 
     def stop(self):
         asyncio.run_coroutine_threadsafe(self._shutdown(), self.loop).result(5)

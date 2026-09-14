@@ -31,7 +31,8 @@ function send(obj) {
 
 async function purpleTabs() {
   const tabs = await chrome.tabs.query({ url: TAB_URL_PATTERN });
-  return tabs.map((t) => ({ id: t.id, url: t.url || "", title: t.title || "" }));
+  return tabs.map((t) => ({ id: t.id, url: t.url || "", title: t.title || "",
+                            attached: t.id === attachedTabId }));
 }
 
 async function pickTab(requestedTabId) {

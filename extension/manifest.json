@@ -1,10 +1,20 @@
 {
   "manifest_version": 3,
   "name": "linc-bot bridge",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "퍼플온 탭에 chrome.debugger 로 붙어 로컬 브리지(ext_bridge.py)의 CDP 명령을 중계한다. --remote-debugging-port 없이 일반 크롬에서 봇이 동작하게 한다.",
-  "permissions": ["debugger", "alarms"],
-  "host_permissions": ["https://purpleon.plaync.com/*"],
-  "background": { "service_worker": "background.js" },
-  "action": { "default_title": "linc-bot bridge" }
+  "permissions": [
+    "debugger",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://purpleon.plaync.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "linc-bot",
+    "default_popup": "popup.html"
+  }
 }
