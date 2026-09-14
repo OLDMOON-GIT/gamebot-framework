@@ -744,3 +744,59 @@ class AtsBootLinkTests(IsolatedLogCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HpBackstopTests(IsolatedLogCase):
+    """BTS-1033015 C2: ATS 위임 실패 시 최후 백스톱 귀환."""
+
+    def _armed(self, **kw):
+        bot, win = make_bot(**kw)
+        bot._ats_started = True          # _start_ats 우회
+        return bot, win
+
+    def test_저HP_첫관측은_귀환하지_않고_기록만(self):
+        bot, _ = self._armed()
+        clock = [1000.0]
+        with patch_view(view(hp=0.30)), \
+             patch.object(cycle_bot.time, "monotonic", lambda: clock[0]):
+            state, why = bot.run_ats_hunt(bot.read())
+        self.assertNotEqual(state, "RETURN", f"단발 저HP로 즉시 귀환: {why}")
+        self.assertEqual(bot.hp_low_since, 1000.0)
+
+    def test_저HP_지속시_백스톱_귀환(self):
+        bot, _ = self._armed()
+        clock = [1000.0]
+        with patch.object(cycle_bot.time, "monotonic", lambda: clock[0]):
+            with patch_view(view(hp=0.30)):
+                bot.run_ats_hunt(bot.read())
+            clock[0] += 3.0              # danger_hold_s 경과
+            with patch_view(view(hp=0.30)):
+                state, why = bot.run_ats_hunt(bot.read())
+        self.assertEqual(state, "RETURN", why)
+        self.assertEqual(bot.return_reason, "hp_danger")
+
+    def test_HP_회복시_지속타이머_리셋(self):
+        """판독 노이즈로 한 프레임 저HP였다가 회복하면 누적이 초기화된다."""
+        bot, _ = self._armed()
+        clock = [1000.0]
+        with patch.object(cycle_bot.time, "monotonic", lambda: clock[0]):
+            with patch_view(view(hp=0.30)):
+                bot.run_ats_hunt(bot.read())
+            clock[0] += 1.0
+            with patch_view(view(hp=0.95)):
+                bot.run_ats_hunt(bot.read())
+            self.assertIsNone(bot.hp_low_since, "회복했는데 저HP 누적이 남았다")
+            clock[0] += 60.0             # 오래 지났어도 새 관측부터 다시 센다
+            with patch_view(view(hp=0.30)):
+                state, why = bot.run_ats_hunt(bot.read())
+        self.assertNotEqual(state, "RETURN", f"회복 후 첫 저HP로 즉시 귀환: {why}")
+
+
+class ReturnReasonTests(IsolatedLogCase):
+    """BTS-1033015: 원인 오분류(무게 태그 미사용 / 스티키 저HP)."""
+
+    def test_판정불가는_idle_no_combat이_아니라_unknown(self):
+        src = (Path(__file__).parent / "cycle_bot.py").read_text(encoding="utf-8")
+        head = src.split("def _town_signal")[0]
+        self.assertIn('self.return_reason = "unknown"', head,
+                      "ATS 자체귀환 원인 폴백이 unknown이 아니다")

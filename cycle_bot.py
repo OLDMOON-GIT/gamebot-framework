@@ -502,7 +502,11 @@ class CycleBot:
             elif potions is not None and potions <= cfg.get("potion_reserve", 50):
                 self.return_reason = "potion_preempt"
             else:
-                self.return_reason = "idle_no_combat"
+                # BTS-1033015: 무게 귀환(ATS 80%)은 이 UI에서 식별 신호가 없어
+                # 여기로 떨어진다. idle_no_combat이라 단정하면 원인을 날조하는
+                # 것이고, hp_danger로 새면 emergency_returns가 오염돼 사냥터가
+                # 부당 제외된다. 판정 불가는 unknown으로 둔다(긴급 집계 제외).
+                self.return_reason = "unknown"
             return "RETURN", f"ATS 자체 귀환 감지(추정 원인={self.return_reason})"
         if hp == 0:
             self.return_reason = "hp_danger"
@@ -548,12 +552,20 @@ class CycleBot:
             if potions <= cfg.get("potion_reserve", 50):
                 self.return_reason = "potion_preempt"
                 return "RETURN", f"주홍 안전재고({potions}개): 예방 귀환"
-        # 감시 지표: HP 추이(긴급귀환 직전 상황 기록용).
+        # HP 추이 감시 + 백스톱 귀환(BTS-1033015 C2).
+        # 위험귀환 소유권은 공식 ATS(긴급 40%)에 있으나, C3처럼 ATS 설정이
+        # 구성되지 않으면 생존장치가 0이 된다. 그때 죽지 않도록 하는 최후 수단.
+        # 단발 HP 판독 노이즈로 오귀환하지 않게 '지속시간' 조건을 반드시 건다.
         now = time.monotonic()
         danger = cfg.get("danger_hp", 0.40)
+        hold = cfg.get("danger_hold_s", 3.0)
         if hp < danger:
             if self.hp_low_since is None:
                 self.hp_low_since = now
+            elif now - self.hp_low_since >= hold:
+                self.hp_low_since = None
+                self.return_reason = "hp_danger"
+                return "RETURN", f"HP 위험({hp:.2f}) {hold:.0f}s 지속: 백스톱 귀환"
         else:
             self.hp_low_since = None
         # 사냥 시간 종료 → 다음 사냥터(ATS 잔여가 남아 있을 때).
@@ -644,6 +656,11 @@ class CycleBot:
         self._return_unreadable = 0
         self.log_cycle(reason)
         self.return_reason = None
+        # BTS-1033015: 귀환 완료 = 사이클 경계. 저HP 흔적을 여기서 지우지 않으면
+        # 프로세스 생애 중 HP가 한 번 55% 미만을 지나간 뒤의 모든 ATS 자체 귀환이
+        # 원인과 무관하게 hp_danger로 분류돼 사냥터가 부당 제외된다(500행).
+        self._last_low_hp = 1.0
+        self._saw_low_hp = False
         self._dead_waits = 0
         alive_in_field = (0 < (view.get("hp") or 0)
                           and not view.get("safe_zone"))
