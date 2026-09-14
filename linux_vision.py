@@ -30,11 +30,20 @@ HP_CUR_RECTS = ((918, 1042, 44, 20),   # 2026-09-10 레이아웃
                 (905, 1030, 97, 24))   # 2026-09-13 시프트 레이아웃(253/253 실측)
 HP_MAX_RECTS = ((963, 1042, 46, 20),
                 (1018, 1030, 57, 24))
+# 'HP : 247/253' 전체를 한 번에 담는 합본 rect 후보(BTS-1033412). 분리
+# 크롭이 얇은 '7'을 잘라먹을 때의 폴백이라 넉넉한 여백을 준다. 실측
+# (2026-09-13 사막던전4층) 세 변형 모두 '247/253'을 정확히 읽었다.
+HP_PAIR_RECTS = ((928, 1024, 100, 20),
+                 (926, 1023, 104, 22),
+                 (905, 1030, 170, 24))
 # HUD HP 게이지: 트랙 334px 실측(2026-09-07). 게이지 막대 위치는 스트림
 # 레이아웃에 따라 y1004와 y1028 두 곳에서 관측됐다(2026-09-09 재접속 후
 # 약 +24px 시프트) → 고정 rect 대신 밴드에서 막대 성분을 찾는다.
 HP_GAUGE_BAND = (700, 980, 520, 130)
 HP_GAUGE_TRACK = 334.0
+# HUD가 막대 위에 겹쳐 쓰는 `HP : 247/253` 글자가 빨간 채움을 끊는 최대 폭
+# (실측 37px). 이 폭까지만 이어붙이고, 더 먼 빨간 픽셀은 막대로 보지 않는다.
+HP_GAUGE_GAP_TOL = 60
 # zone 텍스트(2026-09-09 라이브 실측): 우상단 HUD에 지역종류가 뜬다.
 # 마을 "Safety Zone"은 파란 글씨, 필드 "Normal Zone"은 흰 글씨. 재접속
 # 후 레이아웃이 약 +22px 내려가 두 위치가 모두 존재한다 → 후보 rect를
@@ -103,6 +112,13 @@ def hp_from_gauge(img):
     이 h6 하이라이트를 잡아 항상 0.70에 고착시켰다(BTS-1033250).
     진짜 막대만 잡도록 높이 22~45(하이라이트/글자 배제) + w/h 상한 15
     (하이라이트 w/h≈39 이중 배제)로 잡는다. 막대가 없으면 None.
+
+    막대 위에는 HUD가 `HP : 247/253` 글자를 겹쳐 그려서 빨간 채움이
+    조각난다. 가장 넓은 조각만 쓰면 글자 오른쪽 채움을 버려
+    만피(247/253=0.976)를 0.73으로 읽고 물약을 헛먹었다. 그래서 본체의
+    세로 범위만 컬럼 프로파일로 훑어 오른쪽 끝을 찾고, 글자 폭만큼의
+    갭(실측 37px, 여유 포함 GAP_TOL)만 이어붙인다. 멀리 떨어진 빨간
+    장식은 갭 상한을 넘겨 제외되므로 과대평가(=물약 미투입)로 가지 않는다.
     """
     region = crop(img, HP_GAUGE_BAND)
     hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
@@ -111,15 +127,27 @@ def hp_from_gauge(img):
     joined = cv2.morphologyEx(red, cv2.MORPH_CLOSE, np.ones((1, 5), np.uint8))
     contours, _ = cv2.findContours(joined, cv2.RETR_EXTERNAL,
                                    cv2.CHAIN_APPROX_SIMPLE)
-    best = None
+    body = None
     for contour in contours:
         x, y, width, height = cv2.boundingRect(contour)
         if width >= 40 and 22 <= height <= 45 and width / height <= 15:
-            if best is None or width > best:
-                best = width
-    if best is None:
+            if body is None or width > body[2]:
+                body = (x, y, width, height)
+    if body is None:
         return None
-    return float(min(1.0, best / HP_GAUGE_TRACK))
+    bx, by, bw, bh = body
+    rows = red[by:by + bh, :]
+    cols = (rows > 0).sum(axis=0)
+    need = max(3, int(bh * 0.25))
+    right = bx + bw - 1
+    while right + 1 < cols.size:
+        limit = min(cols.size, right + 2 + HP_GAUGE_GAP_TOL)
+        nxt = next((p for p in range(right + 1, limit) if cols[p] >= need),
+                   None)
+        if nxt is None:
+            break
+        right = nxt
+    return float(min(1.0, (right - bx + 1) / HP_GAUGE_TRACK))
 
 
 # 한 프레임에 이보다 크게 떨어지면 OCR 오독으로 보고 한 프레임 유보한다.
@@ -192,8 +220,31 @@ def hp_from_hud_digits(img):
     바뀌면 오독으로 본다(감소 방향 244→24는 low<=high 검증이 이미 차단).
     이번 프레임은 버리고 관측값을 기록해, 다음 프레임도 같은 분모면
     (실제 레벨업) 그때 승인한다 — 급락 가드와 같은 '1프레임 유보' 철학.
+
+    합본 폴백(BTS-1033412): 분리 크롭은 글자가 몇 px만 시프트해도 얇은
+    '7'이 잘려 '247'을 '24'로 읽는다(실측 사막던전4층). 분리 후보가 전부
+    실패하면 'HP : 247/253' 전체를 한 번에 읽고 슬래시로 쪼갠다 — 잘림에
+    둔감하다. 둘 다 실패하면 None을 돌려 게이지 폭 측정으로 넘긴다.
     """
     global _LAST_MAX, _LAST_RECT_IDX
+
+    def accept(low, high, idx):
+        """분모 점프 가드를 적용해 비율 또는 유보(None)를 돌린다.
+
+        호출 전에 0 < high and low <= high 를 확인해야 한다. 그 형식
+        검증 실패는 '이 후보가 틀렸다'(→다음 후보 시도)이고, 여기서
+        돌려주는 None은 '프레임을 유보한다'(→즉시 중단)로 뜻이 달라
+        한 함수에 섞지 않는다.
+        """
+        global _LAST_MAX, _LAST_RECT_IDX
+        if _LAST_MAX is not None and high != _LAST_MAX:
+            _LAST_MAX = high   # 관측은 기록(다음 프레임 일치 시 승인)
+            _LAST_RECT_IDX = idx
+            return None        # 분모 점프 프레임은 오독으로 유보
+        _LAST_MAX = high
+        _LAST_RECT_IDX = idx
+        return low / high
+
     order = ([_LAST_RECT_IDX]
              + [i for i in range(len(HP_CUR_RECTS)) if i != _LAST_RECT_IDX])
     for idx in order:
@@ -206,14 +257,19 @@ def hp_from_hud_digits(img):
             continue
         low, high = int(cs), int(ms)
         if not (0 < high and low <= high):
+            continue           # 형식 오독 — 다음 후보 rect로 재시도
+        return accept(low, high, idx)   # 유보(None)면 프레임을 버린다
+    for rect in HP_PAIR_RECTS:
+        text = ocr(crop(img, rect), whitelist="0123456789/")
+        if not isinstance(text, str) or text.count("/") != 1:
             continue
-        if _LAST_MAX is not None and high != _LAST_MAX:
-            _LAST_MAX = high   # 관측은 기록(다음 프레임 일치 시 승인)
-            _LAST_RECT_IDX = idx
-            return None        # 분모 점프 프레임은 오독으로 유보
-        _LAST_MAX = high
-        _LAST_RECT_IDX = idx
-        return low / high
+        cs, ms = (part.strip() for part in text.split("/"))
+        if not (cs.isdigit() and ms.isdigit()):
+            continue
+        low, high = int(cs), int(ms)
+        if not (0 < high and low <= high):
+            continue           # 형식 오독 — 다음 합본 후보로 재시도
+        return accept(low, high, _LAST_RECT_IDX)
     return None
 
 

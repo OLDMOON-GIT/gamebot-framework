@@ -254,6 +254,25 @@ class TestHpGaugeSynthetic(unittest.TestCase):
         # 232/334=0.695를 반환 → 물약 임계 근처 고착(종전 버그 재발).
         self.assertIsNone(vision.hp_from_gauge(_gauge_frame(0)))
 
+    def test_HUD_글자로_끊긴_막대는_이어붙여_잰다(self):
+        # 실화면(2026-09-13 사막던전4층, HP 247/253)은 막대 위에 겹쳐 쓴
+        # `HP : 247/253` 글자가 빨간 채움을 끊어 조각(12~197 / 219~346,
+        # 최대 갭 37px)을 만든다. 가장 넓은 조각만 재면 244/334=0.73으로
+        # 읽어 만피인데 물약을 계속 먹는다. 글자 폭 갭은 이어붙여야 한다.
+        img = _gauge_frame(190)
+        bx, by, _, _ = vision.HP_GAUGE_BAND
+        img[by + 60:by + 89, bx + 57 + 190 + 37:bx + 57 + 330] = (60, 60, 200)
+        self.assertAlmostEqual(vision.hp_from_gauge(img), 1.0, delta=0.02)
+
+    def test_멀리_떨어진_빨강은_막대로_이어붙이지_않는다(self):
+        # 갭 상한을 넘는 빨간 장식까지 이으면 저피를 만피로 읽어
+        # 물약을 안 먹고 죽는다(가장 위험한 방향).
+        img = _gauge_frame(150)
+        bx, by, _, _ = vision.HP_GAUGE_BAND
+        img[by + 60:by + 89, bx + 57 + 150 + 90:bx + 57 + 330] = (60, 60, 200)
+        self.assertAlmostEqual(vision.hp_from_gauge(img), 150 / 334,
+                               delta=0.02)
+
     def test_HP_낮을때_하이라이트가_더_넓어도_막대_폭을_잰다(self):
         # 막대 150px(HP 45%) vs 하이라이트 232px: '가장 넓은 성분'을 고르면
         # 하이라이트가 이겨 0.695로 옮겨 붙는다. 진짜 막대 폭을 봐야 한다.
@@ -373,7 +392,8 @@ class TestHpDenominatorGuard(unittest.TestCase):
         # 탈락(후보를 1개로 고정해 순차 시도 효과를 제거하고 검증).
         with self._ocr(["206", "244", "205", "24", "204", "244"]), \
                 patch.object(vision, "HP_CUR_RECTS", vision.HP_CUR_RECTS[:1]), \
-                patch.object(vision, "HP_MAX_RECTS", vision.HP_MAX_RECTS[:1]):
+                patch.object(vision, "HP_MAX_RECTS", vision.HP_MAX_RECTS[:1]), \
+                patch.object(vision, "HP_PAIR_RECTS", ()):  # 분리경로만 검증
             self.assertAlmostEqual(vision.hp_from_hud_digits(self.frame),
                                    206 / 244)
             self.assertIsNone(vision.hp_from_hud_digits(self.frame))
@@ -388,6 +408,28 @@ class TestHpDenominatorGuard(unittest.TestCase):
         # 다음 프레임은 최근 성공 후보(1)부터 — 후보0을 건너뛴다.
         with self._ocr(["253", "253"]):
             self.assertAlmostEqual(vision.hp_from_hud_digits(self.frame), 1.0)
+
+    def test_형식_오독_후보는_건너뛰고_다음_후보를_시도한다(self):
+        # 후보0이 low>high(205/24) 형식 오독 → 프레임을 버리지 않고
+        # 후보1로 넘어가 247/253을 채택한다. '형식 거부'와 '분모 유보'를
+        # 섞으면 이 프레임이 통째로 None이 되므로 회귀 감시용.
+        with self._ocr(["205", "24", "247", "253"]):
+            self.assertAlmostEqual(vision.hp_from_hud_digits(self.frame),
+                                   247 / 253)
+            self.assertEqual(vision._LAST_RECT_IDX, 1)
+
+    def test_분리크롭_전멸시_합본rect가_슬래시로_복구한다(self):
+        # 실측(2026-09-13 사막던전4층 /tmp/hunt_now.png): 글자 시프트로
+        # 분리 크롭 후보 2개가 모두 빈 문자열을 돌려 전멸했고, 합본
+        # rect만 'HP : 247/253'을 정확히 읽었다.
+        with self._ocr(["", "", "", "", "247/253"]):
+            self.assertAlmostEqual(vision.hp_from_hud_digits(self.frame),
+                                   247 / 253)
+
+    def test_합본rect도_실패하면_None으로_게이지폭에_넘긴다(self):
+        # 합본이 슬래시 0개/2개로 깨지면 채택하지 않는다(오독 주입 방지).
+        with self._ocr(["", "", "", "", "247253", "247/25/3", ""]):
+            self.assertIsNone(vision.hp_from_hud_digits(self.frame))
 
     def test_레벨업_분모_변경은_다음_프레임에_승인한다(self):
         with self._ocr(["206", "244", "205", "260", "250", "260"]):
