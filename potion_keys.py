@@ -15,7 +15,7 @@ BTS-1033250 실측: F6 = 물약(수량 1011→1010 확인), F5 = 빈 슬롯이�
 """
 import time
 
-from linux_vision import hp_read
+from linux_vision import hp_read, note_recovery
 from user_gate import user_active
 
 POTION_HP = 0.80      # 사용자 지정 임계: 80% 미만이면 물약
@@ -59,6 +59,10 @@ class PotionKeys:
     def _try_key(self, window, name, hp):
         """키 하나를 누르고 재판독해 반응 여부를 돌려준다."""
         self._press(window, name)
+        # BTS-1033358: 판독기의 HP 급상승 가드를 면제시킨다. 알리지 않으면
+        # 물약이 실제로 들어가도 상승분이 한 프레임 유보되어 gained=False가
+        # 되고, 없는 '무반응'을 근거로 두 번째 키까지 눌러 물약을 2개 쓴다.
+        note_recovery(POTION_WAIT + 2.0)
         time.sleep(POTION_WAIT)
         hp_after = hp_read(window.capture())
         gained = hp_after is not None and hp_after > hp + GAIN_MIN

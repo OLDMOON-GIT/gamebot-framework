@@ -43,7 +43,13 @@ HP_GAUGE_BAND = (700, 980, 520, 130)
 HP_GAUGE_TRACK = 334.0
 # HUD가 막대 위에 겹쳐 쓰는 `HP : 247/253` 글자가 빨간 채움을 끊는 최대 폭
 # (실측 37px). 이 폭까지만 이어붙이고, 더 먼 빨간 픽셀은 막대로 보지 않는다.
-HP_GAUGE_GAP_TOL = 60
+# BTS-1033358: 실측 37px에 비해 60px는 과도한 여유였다(막대 밖 빨강까지
+# 사정권에 들어옴) → 실측 + 여유 8px로 좁힌다.
+HP_GAUGE_GAP_TOL = 45
+# 갭 건너편을 '막대 채움'으로 인정할 최소 높이 비율. 채움은 막대 높이를
+# 꽉 채우므로(29/29행) 0.70이면 통과하고, 이름표/데미지 숫자 같은 얇은
+# 빨강(실측 5행)은 탈락한다. BTS-1033358.
+HP_GAUGE_FILL_RATIO = 0.70
 # zone 텍스트(2026-09-09 라이브 실측): 우상단 HUD에 지역종류가 뜬다.
 # 마을 "Safety Zone"은 파란 글씨, 필드 "Normal Zone"은 흰 글씨. 재접속
 # 후 레이아웃이 약 +22px 내려가 두 위치가 모두 존재한다 → 후보 rect를
@@ -138,15 +144,24 @@ def hp_from_gauge(img):
     bx, by, bw, bh = body
     rows = red[by:by + bh, :]
     cols = (rows > 0).sum(axis=0)
-    need = max(3, int(bh * 0.25))
+    # 막대 채움은 막대 높이를 꽉 채운다(실측 29/29행). 이름표·데미지 숫자
+    # 같은 유입 빨강은 훨씬 얇다(fixture 실측: 막대 끝 뒤 컬럼 5행).
+    # 종전 need=bh*0.25(=7행)는 그 5행과 2행 차이라 노이즈가 조금만 밀면
+    # 갭 이어붙이기가 발동해 막대 밖으로 끌려갔다(BTS-1033358).
+    need = max(3, int(bh * HP_GAUGE_FILL_RATIO))
     right = bx + bw - 1
-    while right + 1 < cols.size:
-        limit = min(cols.size, right + 2 + HP_GAUGE_GAP_TOL)
-        nxt = next((p for p in range(right + 1, limit) if cols[p] >= need),
-                   None)
-        if nxt is None:
-            break
+    # 글자 갭은 '한 번만' 이어붙인다. 종전 while 루프는 hop을 연쇄해서
+    # GAP_TOL 간격으로 빨강이 놓여 있으면 오른쪽으로 무한히 끌려갔다.
+    limit = min(cols.size, right + 2 + HP_GAUGE_GAP_TOL)
+    nxt = next((p for p in range(right + 1, limit) if cols[p] >= need), None)
+    if nxt is not None:
         right = nxt
+        # 이어붙인 뒤로는 연속된 채움만 따라간다(새 갭은 건너지 않는다).
+        while right + 1 < cols.size and cols[right + 1] >= need:
+            right += 1
+    # 트랙 밖으로는 절대 나가지 않는다. 종전에는 walk가 트랙을 넘어도
+    # min(1.0)이 만피로 뭉개서 '물약 미투입 → 사망' 방향으로 숨었다.
+    right = min(right, bx + int(HP_GAUGE_TRACK) - 1)
     return float(min(1.0, (right - bx + 1) / HP_GAUGE_TRACK))
 
 
@@ -158,8 +173,29 @@ HP_STALE_SEC = 1.5
 # 라이브 실측(2026-09-13): 206/244가 한 프레임 20/244(0.083)로 오독 —
 # 게이지 0.83과 0.75 벌어졌다. 정상 프레임의 OCR-게이지 차는 ±0.01 이내.
 HP_CROSS_GUARD = 0.15
+# BTS-1033358: HP는 회복 이벤트(물약/귀환/힐) 없이 오를 수 없다. 따라서
+# 급상승은 급락보다 더 확실한 오독 신호인데 종전에는 가드가 하락에만 있어
+# 무검증 통과했다(라이브 실측: 22초간 회복 없이 0.754 → 0.874, +0.12).
+# 자연 재생은 프레임(약 0.7초)당 1% 미만이라 0.08이면 걸리지 않는다.
+HP_RISE_GUARD = 0.08
+# 물약/귀환 직후에는 상승이 정상이므로 이 창 동안 상승 가드를 면제한다.
+HP_RECOVERY_WINDOW_SEC = 6.0
 _LAST_HP = None
 _LAST_HP_TS = 0.0
+_RECOVERY_UNTIL = 0.0
+
+
+def note_recovery(window_s=None):
+    """회복 이벤트(물약 사용/귀환/힐) 발생을 판독기에 알린다.
+
+    이 호출 뒤 window_s 동안은 HP 상승 가드를 면제한다. 호출을 빠뜨리면
+    정상 회복분이 한 프레임 유보될 뿐이라 안전 방향으로만 틀린다. 단
+    potion_keys처럼 '단일 판독으로 회복 여부를 판정'하는 호출부는 반드시
+    불러야 한다 — 유보된 상승을 '무반응'으로 오판해 물약을 2개 쓴다.
+    """
+    global _RECOVERY_UNTIL
+    span = HP_RECOVERY_WINDOW_SEC if window_s is None else float(window_s)
+    _RECOVERY_UNTIL = time.monotonic() + span
 _LAST_MAX = None
 _LAST_RECT_IDX = 0    # 최근 성공 HP 숫자 rect 후보 인덱스
 
@@ -203,6 +239,13 @@ def hp_read(img):
         # 한 프레임만의 급락은 OCR 자릿수 오독일 때가 많다. 이번 프레임은
         # 직전값을 유지하고, 다음 프레임에도 낮게 나오면 그때 채택된다
         # (_LAST_HP는 이미 갱신). 진짜 급락이어도 한 프레임(약 0.7초)만 늦다.
+        return prev
+    if (prev is not None and value - prev > HP_RISE_GUARD
+            and now >= _RECOVERY_UNTIL):
+        # 4. 급상승 가드(BTS-1033358) — 회복 이벤트 없이 HP가 오르는 건
+        # 물리적으로 불가능하므로 오독이다. 급락 가드와 같은 '한 프레임
+        # 유보' 방식이라 낮은 값에 영구히 고착되지 않는다(_LAST_HP는 이미
+        # 갱신 → 다음 프레임에 같은 값이 또 나오면 그때 채택).
         return prev
     return value
 

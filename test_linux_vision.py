@@ -442,3 +442,72 @@ class TestHpDenominatorGuard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HpGaugeStrayRedTest(unittest.TestCase):
+    """BTS-1033358: 막대 밖 빨강에 판독이 끌려가지 않는지."""
+
+    def setUp(self):
+        vision._LAST_HP = None
+        vision._LAST_HP_TS = 0.0
+        vision._RECOVERY_UNTIL = 0.0
+
+    @staticmethod
+    def _with_stray(bar_w, offsets, stray_h, stray_w=10):
+        """막대 오른쪽 offsets 위치에 빨간 조각을 덧그린 프레임."""
+        img = _gauge_frame(bar_w)
+        bx, by, _, _ = vision.HP_GAUGE_BAND
+        for off in offsets:
+            x = bx + 57 + bar_w + off
+            img[by + 60:by + 60 + stray_h, x:x + stray_w] = (60, 60, 200)
+        return img
+
+    def test_얇은_막대밖_빨강은_이어붙이지_않는다(self):
+        # 이름표/데미지 숫자처럼 얇은(10/29행) 빨강. 종전 need=bh*0.25(7행)
+        # 은 이걸 채움으로 오인해 막대 밖으로 끌려갔다.
+        img = self._with_stray(150, [20], stray_h=10)
+        self.assertAlmostEqual(vision.hp_from_gauge(img), 150 / 334, places=3)
+
+    def test_갭_이어붙이기는_연쇄되지_않는다(self):
+        # 채움 높이 빨강이 GAP_TOL 간격으로 늘어서 있어도 한 번만 잇는다.
+        # 종전 while 루프는 hop을 연쇄해 맨 끝까지 끌려갔다.
+        img = self._with_stray(150, [30, 70, 110], stray_h=29)
+        got = vision.hp_from_gauge(img)
+        self.assertAlmostEqual(got, (150 + 30 + 10) / 334, places=3)
+        self.assertLess(got, (150 + 110) / 334)
+
+    def test_글자_갭은_여전히_이어붙인다(self):
+        # 회귀 방지: 실측 37px 글자 갭 건너편 채움(h29)은 반드시 이어야 한다.
+        img = self._with_stray(150, [37], stray_h=29, stray_w=60)
+        self.assertAlmostEqual(vision.hp_from_gauge(img),
+                               (150 + 37 + 60) / 334, places=3)
+
+
+class HpRiseGuardTest(unittest.TestCase):
+    """BTS-1033358: 회복 없는 HP 급상승 유보."""
+
+    def setUp(self):
+        vision._LAST_HP = None
+        vision._LAST_HP_TS = 0.0
+        vision._RECOVERY_UNTIL = 0.0
+        digits = patch.object(vision, "hp_from_hud_digits", return_value=None)
+        digits.start()
+        self.addCleanup(digits.stop)
+
+    def test_회복_없는_급상승은_한_프레임_유보된다(self):
+        with patch.object(vision, "hp_from_gauge",
+                          side_effect=[0.754, 0.874, 0.874]) as g:
+            frame = object()
+            self.assertAlmostEqual(vision.hp_read(frame), 0.754)
+            # 라이브 실측 오독(+0.12)은 즉시 채택되지 않는다.
+            self.assertAlmostEqual(vision.hp_read(frame), 0.754)
+            # 다음 프레임에 같은 값이 또 나오면 채택한다(고착 없음).
+            self.assertAlmostEqual(vision.hp_read(frame), 0.874)
+            self.assertEqual(g.call_count, 3)
+
+    def test_물약_직후_상승은_즉시_채택된다(self):
+        with patch.object(vision, "hp_from_gauge", side_effect=[0.754, 0.98]):
+            frame = object()
+            self.assertAlmostEqual(vision.hp_read(frame), 0.754)
+            vision.note_recovery(5.0)
+            self.assertAlmostEqual(vision.hp_read(frame), 0.98)
