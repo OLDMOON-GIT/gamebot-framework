@@ -253,7 +253,7 @@
   function installHudUi() {
 
   if (window.__lincHudUiTimer) clearInterval(window.__lincHudUiTimer);
-  document.getElementById('linc-bot-hud')?.remove();
+  document.querySelectorAll('#linc-bot-hud').forEach(e => e.remove());
   const S = 'http://127.0.0.1:17311';
   const css = document.createElement('style');
   css.textContent = `
