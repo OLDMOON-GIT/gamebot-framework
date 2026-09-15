@@ -97,13 +97,24 @@ class ExtHpSource:
     def __init__(self, url=EXT_HP_URL, timeout=1.5):
         self.url = url
         self.timeout = timeout
+        # 급변 가드 상태(2026-09-15 사고): 확장 OCR이 '223'을 '23'으로
+        # 읽어 0.09로 오판 → 봇이 'HP 위험 이탈' 클릭을 한 사고. CDP
+        # hp_read의 급락 가드(HP_DROP_GUARD=0.30, 한 프레임 유보 후 다음
+        # 프레임에도 같은 값이면 승인)와 동일 철학을 이 소스에도 건다.
+        self._last_ratio = None
 
-    def probe(self):
-        """(cur, hp_max) 반환. 형식이 유효하지 않으면 None."""
+    def _fetch(self):
         try:
             with urllib.request.urlopen(self.url, timeout=self.timeout) as r:
                 payload = json.loads(r.read().decode())
         except Exception:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def probe(self):
+        """(cur, hp_max) 반환. 형식이 유효하지 않으면 None."""
+        payload = self._fetch()
+        if payload is None:
             return None
         cur, mx = payload.get("hp"), payload.get("hp_max")
         if not (isinstance(cur, int) and isinstance(mx, int)):
@@ -112,9 +123,26 @@ class ExtHpSource:
             return None
         return cur, mx
 
+    def _guard(self, ratio):
+        """급락/급상승 한 프레임 유보 — 진짜 급변은 다음 프레임에 승인."""
+        prev = self._last_ratio
+        self._last_ratio = ratio
+        if prev is not None and abs(ratio - prev) > 0.30:
+            return prev
+        return ratio
+
     def read(self):
-        got = self.probe()
-        return None if got is None else got[0] / got[1]
+        """HP 비율. 확장 게이지 판독값(ratio) 우선, 숫자 OCR 폴백."""
+        payload = self._fetch()
+        if payload is None:
+            return None
+        ratio = payload.get("ratio")
+        if isinstance(ratio, (int, float)) and 0.0 <= ratio <= 1.0:
+            return self._guard(float(ratio))
+        cur, mx = payload.get("hp"), payload.get("hp_max")
+        if isinstance(cur, int) and isinstance(mx, int) and 0 < mx and 0 <= cur <= mx:
+            return self._guard(cur / mx)
+        return None
 
 
 def calibrate_hud(src, need=3, tries=8, delay=2.5):

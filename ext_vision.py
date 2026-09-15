@@ -65,6 +65,12 @@ class _Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 return default
 
+        def _float(name, default):
+            try:
+                return float(self.headers.get(name) or default)
+            except (TypeError, ValueError):
+                return default
+
         with _lock:
             _latest[kind] = {
                 'ts': time.time(),
@@ -72,6 +78,10 @@ class _Handler(BaseHTTPRequestHandler):
                 'native_w': _int('X-Native-W', NATIVE_W),
                 'native_h': _int('X-Native-H', NATIVE_H),
                 'origin_y': _int('X-Origin-Y', HUD_ORIGIN_Y),
+                # 확장 안 게이지 판독값(BTS-1033474). content.js가 스트립
+                # 채움 폭으로 계산해 보낸다 — 숫자 OCR의 자릿수 오독
+                # ('223'→'23')이 원천 없다. 없으면 None(파이썬 OCR 폴백).
+                'hp_ratio': _float('X-HP-Ratio', None),
             }
         self.send_response(204)
         self._cors()
@@ -88,7 +98,10 @@ class _Handler(BaseHTTPRequestHandler):
                 hp, hp_max = read_hp(max_age=2.0, scale=scale)
             except Exception:
                 hp, hp_max = None, None
-            body = json.dumps({"hp": hp, "hp_max": hp_max}).encode('utf-8')
+            # 확장 게이지 판독값(BTS-1033474): 있으면 이쪽이 우선이다.
+            ratio = read_ext_ratio(max_age=1.0)
+            body = json.dumps(
+                {"hp": hp, "hp_max": hp_max, "ratio": ratio}).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(body)))
@@ -197,6 +210,23 @@ def _scaled(rect, ent, img=None):
     x, y, w, h = rect
     return (int(round(x * sx)), int(round(y * sy)),
             int(round(w * sx)), int(round(h * sy)))
+
+
+def read_ext_ratio(max_age=0.7):
+    """확장(content.js)이 게이지 채움 폭으로 계산한 HP 비율.
+
+    BTS-1033474(사용자 지시 'HUD를 크롬익스텐션으로 개발'): 확장 안에서
+    판독한 값이며 숫자 OCR의 자릿수 오독('223'→'23' → 0.09 오판 → 봇
+    이탈 사고)이 원천 없다. 헤더가 없거나 오래됐으면 None(OCR 폴백).
+    """
+    with _lock:
+        ent = _latest.get('hud')
+        if not ent or ent.get('hp_ratio') is None:
+            return None
+        if max_age is not None and (time.time() - ent['ts']) > max_age:
+            return None
+        ratio = ent['hp_ratio']
+    return float(min(1.0, max(0.0, ratio)))
 
 
 def read_hp(max_age=0.5, scale=3):

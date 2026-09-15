@@ -34,6 +34,78 @@
   const FULL_INTERVAL_MS = 250;  // 몹 탐색용 전체 프레임 (4fps)
   const FULL_JPEG_QUALITY = 0.85; // q85 미만은 OCR 오독 위험 구간
 
+  // ── HUD 게이지 판독기 (BTS-1033474, 사용자 지시 'HUD를 크롬익스텐션으로
+  //    개발') ─────────────────────────────────────────────────────────────
+  // 확장이 캡처만 하고 판독은 파이썬 OCR이던 구조를 확장 안 판독으로 바꾼다.
+  // 근거(2026-09-15 실측): 게이지 채움 폭/트랙(272px)이 숫자 OCR 판독과
+  // ±0.003 일치. 숫자 OCR은 '223'→'23' 오독으로 0.99를 0.09로 만들어 봇이
+  // 'HP 위험 이탈'을 치는 사고가 났다. 게이지 폭은 자릿수 오독이 원천 없다.
+  // 네이티브 1280 기준 값 — 스트립 폭 비율로 스케일 보정한다.
+  const GAUGE_REF_W = 1280;
+  const GAUGE_TRACK_PX = 272;     // 트랙 전체 폭(1280 기준 실측)
+  const GAUGE_Y0 = 28, GAUGE_Y1 = 80;  // 게이지 밴드(스트립 y, 1280 기준)
+
+  function hpRatioFromStrip(ctx, W, H) {
+    const s = W / GAUGE_REF_W;    // x/y 공통 스케일(스트립은 1:1 크롭)
+    const y0 = Math.max(0, Math.round(GAUGE_Y0 * s));
+    const y1 = Math.min(H, Math.round(GAUGE_Y1 * s));
+    const rows = y1 - y0, colsN = W;
+    if (rows < 8) return null;
+    const data = ctx.getImageData(0, y0, colsN, rows).data;
+    // 빨강 HSV 마스크(V>=120, S>=0.58, H<=12 || H>=168) — 파이썬
+    // inRange(0,150,120)..(10,255,255)|(170,..)와 동일 조건.
+    const mask = new Uint8Array(colsN * rows);
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < colsN; x++) {
+        const i = (y * colsN + x) * 4;
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+        if (mx < 120 || mx === 0 || (mx - mn) / mx < 0.58) continue;
+        const d = mx - mn;
+        let h = 0;
+        if (mx === r) h = 60 * ((((g - b) / d) % 6 + 6) % 6);
+        else if (mx === g) h = 60 * ((b - r) / d + 2);
+        else h = 60 * ((r - g) / d + 4);
+        if (h <= 12 || h >= 168) mask[y * colsN + x] = 1;
+      }
+    }
+    // 가로 3px dilate(파이썬 MORPH_CLOSE (1,3)의 근사 — bbox 좌우 1px
+    // 부풀음은 모든 프레임에 동일하게 적용되어 ratio 비율 불변에 무해).
+    const dil = new Uint8Array(colsN * rows);
+    for (let y = 0; y < rows; y++) {
+      const row = y * colsN;
+      for (let x = 0; x < colsN; x++) {
+        if (mask[row + x] || (x > 0 && mask[row + x - 1]) ||
+            (x < colsN - 1 && mask[row + x + 1])) dil[row + x] = 1;
+      }
+    }
+    // 4방향 연결요소 BFS → 막대 필터(최광폭) → 폭/트랙.
+    const seen = new Uint8Array(colsN * rows);
+    const queue = new Int32Array(colsN * rows);
+    let bestW = 0;
+    for (let start = 0; start < colsN * rows; start++) {
+      if (!dil[start] || seen[start]) continue;
+      let head = 0, tail = 0;
+      queue[tail++] = start; seen[start] = 1;
+      let minX = colsN, maxX = -1, minY = rows, maxY = -1;
+      while (head < tail) {
+        const p = queue[head++];
+        const py = (p / colsN) | 0, px = p - py * colsN;
+        if (px < minX) minX = px; if (px > maxX) maxX = px;
+        if (py < minY) minY = py; if (py > maxY) maxY = py;
+        if (px > 0 && dil[p - 1] && !seen[p - 1]) { seen[p - 1] = 1; queue[tail++] = p - 1; }
+        if (px < colsN - 1 && dil[p + 1] && !seen[p + 1]) { seen[p + 1] = 1; queue[tail++] = p + 1; }
+        if (py > 0 && dil[p - colsN] && !seen[p - colsN]) { seen[p - colsN] = 1; queue[tail++] = p - colsN; }
+        if (py < rows - 1 && dil[p + colsN] && !seen[p + colsN]) { seen[p + colsN] = 1; queue[tail++] = p + colsN; }
+      }
+      const w = maxX - minX + 1, hh = maxY - minY + 1;
+      if (w >= 30 * s && hh >= 15 * s && hh <= 35 * s &&
+          w / hh <= 15 && w > bestW) bestW = w;
+    }
+    if (!bestW) return null;
+    return Math.min(1.0, bestW / (GAUGE_TRACK_PX * s));
+  }
+
   let video = null;
   let hudCanvas = null, hudCtx = null;
   let fullCanvas = null, fullCtx = null;
@@ -94,16 +166,25 @@
       if (!hudCtx) hudCtx = hudCanvas.getContext('2d', { willReadFrequently: true });
       // 네이티브 좌표에서 HUD 영역만 잘라 1:1로 그린다 (확대/축소 금지)
       hudCtx.drawImage(v, HUD.x, HUD.y, HUD.w, HUD.h, 0, 0, HUD.w, HUD.h);
+      // 확장 안 판독(BTS-1033474): 게이지 채움 폭으로 HP 비율을 이 자리에서
+      // 계산해 함께 보낸다. 파이썬 OCR은 이 값이 없을 때만 폴백으로 쓴다.
+      let hpRatio = null;
+      try { hpRatio = hpRatioFromStrip(hudCtx, HUD.w, HUD.h); }
+      catch (e) { /* 판독 실패는 헤더 생략로 폴백 */ }
       const blob = await blobOf(hudCanvas, 'image/png');
       if (blob) {
-        await post('/hud', blob, {
+        const headers = {
           'Content-Type': 'image/png',
           'X-Origin-X': String(HUD.x),
           'X-Origin-Y': String(HUD.y),
           'X-Native-W': String(v.videoWidth),
           'X-Native-H': String(v.videoHeight),
           'X-Ts': String(Date.now()),
-        });
+        };
+        if (hpRatio !== null && Number.isFinite(hpRatio)) {
+          headers['X-HP-Ratio'] = hpRatio.toFixed(4);
+        }
+        await post('/hud', blob, headers);
       }
     } catch (e) {
       // 캔버스 오염(CORS) 등은 한 번만 알린다
