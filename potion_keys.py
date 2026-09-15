@@ -66,6 +66,11 @@ class PotionKeys:
         self._first_key = "F6"
         self._dry = 0             # 연속 무반응 턴 수
         self._read = read
+        # 회복량 자동 학습(사용자 지시 '물약 종류에 따라 몇개 빨아야되는지
+        # 계산'): 종류(빨갱이/맑은이 등)마다 회복량이 다르므로 매 투입의
+        # 실측 증가량을 EMA로 학습해 필요 개수를 계산한다. 초기값은
+        # 2026-09-15 145건 조사 중애 +8%p(HP 20).
+        self._gain = POTION_GAIN
         self._alt_key = "F5"
         self._return_key = "F8"
         self._chain_max = CHAIN_MAX
@@ -218,10 +223,9 @@ class PotionKeys:
                     break
                 chain += 1
                 hp_after = hp_next
-            need = int((thr - base_hp) / POTION_GAIN) + 1
             log(f"물약 {self._first_key} (HP {base_hp:.2f}→{hp_after:.2f}"
-                f"{', 연속 ' + str(chain) + '회' if chain > 1 else ''}"
-                f"{f', 예상필요 {need}개' if chain == 1 and base_hp < 0.7 else ''})")
+                f"{', 연속 ' + str(chain) + '개' if chain > 1 else ''}"
+                f", 회복 {self._gain:.2f}/개)")
             # 턴을 마쳐도 임계 미달이면 쿨다운을 풀어 다음 폴링(0.5초)에
             # 즉시 재개한다 — 80% 이상 회복이 원칙(사용자 지시).
             if hp_after is not None and hp_after < thr:

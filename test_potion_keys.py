@@ -50,10 +50,10 @@ class TestPotionKeys(unittest.TestCase):
 
     def test_임계_미만_2프레임이면_F6을_누른다(self):
         # 경계: 0.79 < 0.80 → 사용. 재판독 상승(0.95) → F6만 누른다.
-        # F6 우선(2026-09-14 실측: F6=물약, F5=빈 슬롯).
+        # F5 우선(사용자 지시 2026-09-15: F5에 물약 세팅).
         p = self._potion(lambda img: 0.95)
         self.assertEqual(self._armed(p, 0.79), USED)
-        self.assertEqual(self._presses(), ["F6"])
+        self.assertEqual(self._presses(), ["F5"])
 
     def test_한_프레임만의_저HP로는_누르지_않는다(self):
         # OCR 오독 한 프레임(0.79)이 F5를 발사하면 안 된다.
@@ -68,7 +68,7 @@ class TestPotionKeys(unittest.TestCase):
         # 재판독이 계속 낮으면(반응 없음) F6→F5 순서로 누른다.
         p = self._potion(lambda img: 0.79)
         self.assertEqual(self._armed(p, 0.79), USED)
-        self.assertEqual(self._presses(), ["F6", "F5"])
+        self.assertEqual(self._presses(), ["F5", "F6"])
 
     def test_쿨다운_중에는_재누름이_막힌다(self):
         p = self._potion(lambda img: 0.95)
@@ -112,7 +112,7 @@ class TestPotionKeys(unittest.TestCase):
         reread = iter([0.60, 0.86])  # 1회차 +0.2, 2회차 후 임계 회복
         p = self._potion(lambda img: next(reread))
         self.assertEqual(self._armed(p, 0.40), USED)
-        self.assertEqual(self._presses(), ["F6", "F6"])
+        self.assertEqual(self._presses(), ["F5", "F5"])
 
     def test_연속_투입은_상한이_있다(self):
         # 재판독이 계속 소폭 상승(투입 효과)해도 임계 밑이면 이어가되
@@ -143,12 +143,12 @@ class TestPotionKeys(unittest.TestCase):
 
     def test_설정_키_우선_고정_무반응시_보조_폴백(self):
         # 확장 UI 설정(BTS): potion_key가 매 턴 고정된다(학습 리셋 제거).
-        # F6(설정) 무반응 → F5(보조) 반응. 다음 턴에도 설정 키 F6 우선.
+        # F5(설정) 무반응 → F6(보조) 반응. 다음 턴에도 설정 키 F6 우선.
         reread = iter([0.79, 0.95])  # F6 재판독 무반응, F5 재판독 상승
         p = self._potion(lambda img: next(reread))
         self.assertEqual(self._armed(p, 0.79), USED)
-        self.assertEqual(self._presses(), ["F6", "F5"])
-        self.assertEqual(p._first_key, "F6")  # 설정 키 유지
+        self.assertEqual(self._presses(), ["F5", "F6"])
+        self.assertEqual(p._first_key, "F5")  # 설정 키 유지
 
 
 if __name__ == "__main__":
