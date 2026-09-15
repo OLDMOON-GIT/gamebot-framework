@@ -15,7 +15,7 @@ import numpy as np
 
 from cdp_window import CdpWindow, EXT_PORT
 from linux_vision import find_character, hp_read, red_name_candidates
-from potion_keys import EXHAUSTED, USED, PotionKeys
+from potion_keys import EXHAUSTED, RETURN, USED, PotionKeys
 from user_gate import user_active
 
 RUNTIME = Path("/tmp/linc-bot-linux")
@@ -289,6 +289,9 @@ def main():
                 result = potion.check(w, hp)
                 if result == EXHAUSTED:
                     log("물약 재고 소진 — 사냥 중단(사망 방지)")
+                    break
+                if result == RETURN:
+                    log("F8 귀환 — 사냥 중단(마을)")
                     break
                 # HP 폴링 0.5초(사용자 지시 '80밑으로 가면 빨라') —
                 # 캡처+판독 시간을 제외한 최소 대기.

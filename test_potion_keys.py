@@ -86,15 +86,24 @@ class TestPotionKeys(unittest.TestCase):
             self.assertEqual(p.check(self.w, None), UNKNOWN)
         self.w.key.assert_not_called()
 
-    def test_F5_F6_모두_무반응_3턴이면_재고_소진(self):
+    def test_F5_F6_모두_무반응_3턴이면_F8_귀환(self):
         p = self._potion(lambda img: 0.50)  # 재판독도 계속 낮음
         results = []
         for _ in range(3):
             results.append(self._armed(p, 0.50))
             p._last_used -= COOLDOWN + 0.1  # 쿨다운 해제(누적 관찰용)
-        self.assertEqual(results, [USED, USED, EXHAUSTED])
-        # 매턴 F5+F6 두 번씩: 3턴 × 2 = 6
-        self.assertEqual(self.w.key.call_count, 6)
+        # 사용자 지시: 소진 시 F8(귀환 주문서) — EXHAUSTED 대신 RETURN.
+        self.assertEqual(results, [USED, USED, potion_keys.RETURN])
+        # 매턴 F6+F5 두 번씩 3턴(6회) + 마지막 F8 1회 = 7
+        self.assertEqual(self.w.key.call_count, 7)
+
+    def test_HP_20퍼미만이면_즉시_F8_귀환(self):
+        # 사용자 지시: '물약이 아예없거나 20퍼미만의 경우 f8'.
+        p = self._potion(lambda img: 0.95)
+        r = self._armed(p, 0.15)
+        self.assertEqual(r, potion_keys.RETURN)
+        presses = [c.args[0] for c in self.w.key.call_args_list]
+        self.assertIn("F8", presses)
 
 
     def test_피가_딸리면_연속_투입한다(self):
@@ -114,6 +123,24 @@ class TestPotionKeys(unittest.TestCase):
         # 시작 0.40은 위기(사용자 지시 '40퍼 쭉쭉 내려가면 80 이상')라
         # 상한 CHAIN_MAX+2=6회까지 이어간다.
         self.assertEqual(len(self._presses()), 6)
+
+
+    def test_급감하면_임계가_상향된다(self):
+        # 사용자 지시(2026-09-15): '피가 줄어드는 속도에 따라 빨아야됨'.
+        # 초당 ~7%p씩 떨어지는 관측이 쌓이면 임계가 0.80+α로 올라가
+        # 0.85 같은 값에서도 즉시 투입한다.
+        p = self._potion(lambda img: 0.95)
+        import time as _t
+        # 관측 히스토리: 1초에 걸쳐 0.90→0.83(≈0.07/s 하락) → 임계 상향.
+        p._hp_hist = [(_t.monotonic() - 1.0, 0.92), (_t.monotonic(), 0.82)]  # ~0.10/s
+        self.assertEqual(self._armed(p, 0.85), USED)
+
+    def test_안정이면_기본_임계_유지(self):
+        p = self._potion(lambda img: 0.95)
+        p.check(self.w, 0.82)
+        p.check(self.w, 0.82)  # 하락 없음 → rate None → 기본 0.80
+        # 0.81은 기본 임계 위라 누르지 않는다
+        self.assertEqual(p.check(self.w, 0.81), SKIP)
 
     def test_F5_성공_후에는_F5를_먼저_누른다(self):
         # F6 무반응 → F5 반응: 다음 사용부터 F5 우선(학습).

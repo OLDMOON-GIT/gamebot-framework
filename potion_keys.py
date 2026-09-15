@@ -26,6 +26,11 @@ POTION_WAIT = 1.0     # 키 입력 후 재판독까지 대기(초) — 사망 �
 COOLDOWN = 1.2        # 턴 간 쿨다운(초) — 게임 물약 재사용 대기 수준(2026-09-15 사용자 지시 '빨라')
 DANGER_COOLDOWN = 1.2  # 위험 구간(<0.45) 쿨다운 — 급할 때 빠르게(2026-09-15 사용자 지시)
 CHAIN_MAX = 4          # 한 턴 연속 투입 상한(피가 많이 딸리면 여러 번: 사용자 지시)
+# 비상 귀환(사용자 지시 2026-09-15): '물약이 아예없거나 20퍼미만의 경우 f8'
+# — F8은 귀환 주문서다. HP<20% 또는 일반 물약(F5/F6) 소진 시 눌러 마을로
+# 귀환한다. 귀환 성공 여부와 무관하게 사냥은 중단이 안전하다.
+EMERGENCY_RETURN_KEY = "F8"
+EMERGENCY_HP = 0.20
 CHAIN_GAP = 1.0        # 연속 투입 간격(게임 물약 재사용 대기)
 GAIN_MIN = 0.04       # 재판독에서 '올랐다'로 인정할 최소 상승 폭
 DRY_LIMIT = 3         # 연속 무반응 허용 턴 수(넘으면 재고 소진)
@@ -34,6 +39,7 @@ USED = "used"          # 물약을 사용한 턴
 SKIP = "skip"          # 임계 이상이라 물약 없음
 UNKNOWN = "unknown"    # HP 판독 불가 — 물약 보류
 EXHAUSTED = "exhausted"  # F5/F6 모두 무반응 누적 — 재고 소진 추정
+RETURN = "return"      # F8 귀환 주문서 사용 — 사냥 중단(마을)
 
 
 def log(msg):
@@ -45,6 +51,9 @@ class PotionKeys:
 
     def __init__(self, threshold=POTION_HP, read=None):
         self.threshold = threshold
+        # HP 이력: 감소율 추정(사용자 지시 2026-09-15 '피가 줄어드는 속도에
+        # 따라 빨아야됨') — 다구리로 빨리 줄수록 더 높은 HP에서 미리 투입.
+        self._hp_hist = []   # [(monotonic, hp)] 최근 관측
         self._last_used = 0.0
         self._low_since = None    # 임계 미만 관측 시작 시각(2프레임 확인)
         # 2026-09-14 실측: F6=물약(1011→1010 확인), F5=빈 슬롯. 초기값
@@ -76,6 +85,30 @@ class PotionKeys:
         gained = hp_after is not None and hp_after > hp + GAIN_MIN
         return gained, hp_after
 
+    def _track(self, hp):
+        """HP 이력 기록과 초당 감소율(하락만). 오독 스파이크는 가드를
+        통과한 값이므로 관측 그대로 쓴다."""
+        now = time.monotonic()
+        self._hp_hist = [(t, v) for t, v in self._hp_hist if now - t <= 3.0]
+        self._hp_hist.append((now, hp))
+        if len(self._hp_hist) < 2:
+            return None
+        t0, v0 = self._hp_hist[0]
+        t1, v1 = self._hp_hist[-1]
+        dt = t1 - t0
+        if dt < 0.3:
+            return None
+        drop = (v0 - v1) / dt
+        return drop if drop > 0.005 else None
+
+    def _threshold_now(self, drop_rate):
+        """감소율 반영 임계: 초당 5%p씩 줄면 +0.05, 10%p면 +0.10 …
+        상한 0.92 — 빨리 줄수록 그만큼 일찍 물약을 시작한다."""
+        base = self.threshold
+        if not drop_rate:
+            return base
+        return min(0.92, base + drop_rate)
+
     def check(self, window, hp):
         """물약이 필요하면 (2프레임 확인 후) F5/F6을 누른다.
 
@@ -86,7 +119,11 @@ class PotionKeys:
             log("HP 판독 불가 — 물약 보류")
             self._low_since = None
             return UNKNOWN
-        if hp >= self.threshold:
+        drop = self._track(hp)
+        thr = self._threshold_now(drop)
+        if drop and drop >= 0.1:
+            log(f"HP 급감 {drop:.2f}/s — 임계 {thr:.2f} 상향")
+        if hp >= thr:
             self._low_since = None
             return SKIP
         now = time.monotonic()
@@ -98,6 +135,12 @@ class PotionKeys:
             return SKIP
         self._low_since = None
         self._last_used = now
+
+        # 비상 귀환(사용자 지시): HP<20%면 물약을 따질 새 없이 F8 귀환.
+        if hp < EMERGENCY_HP:
+            log(f"HP 위험({hp:.2f}) — {EMERGENCY_RETURN_KEY} 귀환 주문서")
+            window.key(EMERGENCY_RETURN_KEY, window.geometry())
+            return RETURN
 
         second = "F6" if self._first_key == "F5" else "F5"
         gained, hp_after = self._try_key(window, self._first_key, hp)
@@ -114,7 +157,7 @@ class PotionKeys:
             # 위기(사용자 지시 '40퍼 쭉쭉 내려가면 80 이상으로') 시작이
             # 낮으면 상한을 늘린다.
             limit = CHAIN_MAX if hp >= 0.55 else CHAIN_MAX + 2
-            while (hp_after is not None and hp_after < self.threshold
+            while (hp_after is not None and hp_after < thr
                    and chain < limit):
                 time.sleep(CHAIN_GAP)
                 more, hp_next = self._try_key(window, self._first_key, hp_after)
@@ -126,12 +169,14 @@ class PotionKeys:
                 f"{', 연속 ' + str(chain) + '회' if chain > 1 else ''})")
             # 턴을 마쳐도 임계 미달이면 쿨다운을 풀어 다음 폴링(0.5초)에
             # 즉시 재개한다 — 80% 이상 회복이 원칙(사용자 지시).
-            if hp_after is not None and hp_after < self.threshold:
+            if hp_after is not None and hp_after < thr:
                 self._last_used = 0.0
             return USED
         self._dry += 1
         log(f"물약 무반응 F5/F6 ({self._dry}/{DRY_LIMIT}, HP {hp:.2f})")
         if self._dry >= DRY_LIMIT:
-            log("물약 재고 소진 추정 — 사냥 중단 권고")
-            return EXHAUSTED
+            # 일반 소진 — F8 귀환(사용자 지시: 사망 방지가 낫다).
+            log("물약 소진 — F8 귀환 주문서")
+            window.key(EMERGENCY_RETURN_KEY, window.geometry())
+            return RETURN
         return USED
