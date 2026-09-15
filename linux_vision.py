@@ -307,12 +307,11 @@ def hp_read(img):
     if value is not None:
         gauge = hp_from_gauge(img)
         if gauge is not None and abs(value - gauge) > HP_CROSS_GUARD:
-            # 만피 확정(low==high)이면 OCR 신뢰 — 게이지는 만피에서 숫자가
-            # 채움을 끊어 저폭가 오독한다(2026-09-15 '100퍼인데 약빨고').
-            if abs(value - 1.0) < 0.02:
-                pass
-            else:
-                value = gauge  # 그 외 불일치: 게이지 쪽이 정상 경로
+            # 불일치 시 높은 쪽 채택(2026-09-16 '또 100퍼인데 물약'): 만피
+            # 근처는 게이지가 글자갭으로 저평가하고 OCR도 흔들린다 — 낮은
+            # 쪽을 따르면 만피를 0.6x로 읽어 물약을 헛발사한다. 높은 쪽이
+            # 안전하다(높게 읽어 놓치는 건 다음 프레임이 잡는다).
+            value = max(value, gauge)
     else:
         # OCR 실패 → 게이지 폴백(위 교차검증 근거로 신뢰 회복)
         value = hp_from_gauge(img)
