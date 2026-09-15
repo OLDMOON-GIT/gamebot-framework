@@ -7,6 +7,9 @@
 분업: ATS=몹 사냥, onestep=물약, 이 스크립트=F4 줍기.
 """
 import time
+
+import cv2
+import numpy as np
 from pathlib import Path
 
 from cdp_window import CdpWindow, EXT_PORT
