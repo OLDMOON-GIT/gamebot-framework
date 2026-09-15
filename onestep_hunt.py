@@ -207,6 +207,25 @@ def hp_guard(ratio):
     return ratio
 
 
+def post_bot_status(ratio, kills=None, note=None):
+    """봇 판독값을 ext_vision에 게시 — 크롬 익스텐션 HUD UI 데이터.
+
+    실패해도 봇 동작에 영향 없음(UI 전용 채널)."""
+    try:
+        payload = {"ratio": ratio}
+        if kills is not None:
+            payload["kills"] = kills
+        if note:
+            payload["note"] = note
+        req = urllib.request.Request(
+            "http://127.0.0.1:17311/bot-hp",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=1.0).close()
+    except Exception:
+        pass
+
+
 def main():
     STOP.unlink(missing_ok=True)
     w = CdpWindow(port=EXT_PORT)
@@ -231,10 +250,13 @@ def main():
         ratio = hp_read(window.capture())
         if ratio is None:
             ratio = ext_hp.read()
-        return hp_guard(ratio)
+        guarded = hp_guard(ratio)
+        post_bot_status(guarded, kills=main.kills)
+        return guarded
 
     log("한 칸 거리 사냥 시작(이동 없음, 근접 몹만)")
     kills = 0
+    main.kills = 0
     hp_unread = 0
     prev = None
     potion = PotionKeys(read=read_hp_source)
@@ -291,6 +313,7 @@ def main():
             mx, my, area = mobs[0]
             yield_click(w, mx, my)
             kills += 1
+            main.kills = kills
             log(f"근접 몹 공격 #{kills}: ({mx},{my}) 면적={area} HP={hp}")
             time.sleep(4.0)  # 자동전투 진행 대기
             prev = None      # 전투 후 재기준

@@ -48,6 +48,27 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         kind = self.path.strip('/').lower()
+        if kind == 'bot-hp':
+            # 봇(onestep)이 판독한 HP를 게시 — 확장 UI가 /hp에서 우선
+            # 표시한다(2026-09-15: 크롬 익스텐션 HUD UI 데이터 소스).
+            try:
+                n = int(self.headers.get('Content-Length') or 0)
+                payload = json.loads(self.rfile.read(n) or b'{}')
+                bot = dict(payload)
+                assert isinstance(bot.get('ratio'), (int, float))
+            except Exception:
+                self.send_response(400)
+                self._cors()
+                self.end_headers()
+                return
+            bot['ts'] = time.time()
+            with _lock:
+                _latest['bot'] = bot
+            self.send_response(204)
+            self._cors()
+            self.end_headers()
+            return
+        kind = self.path.strip('/').lower()
         if kind == 'ext-ratio':
             # 페이지 주입 판독기(2026-09-15): content.js 확장 갱신 전까지
             # 게임 탭에 CDP로 심은 스크립트가 게이지 폭 판독값을 보낸다.
@@ -128,8 +149,17 @@ class _Handler(BaseHTTPRequestHandler):
                 hp, hp_max = None, None
             # 확장 게이지 판독값(BTS-1033474): 있으면 이쪽이 우선이다.
             ratio = read_ext_ratio(max_age=1.0)
+            # 봇 게시값(CDP 화면 판독 — 검증된 안정 경로): UI 표시 우선.
+            bot = None
+            with _lock:
+                ent = _latest.get('bot')
+                if ent and time.time() - ent.get('ts', 0) <= 10.0:
+                    bot = dict(ent)
+            if bot is not None:
+                ratio = bot.get('ratio', ratio)
             body = json.dumps(
-                {"hp": hp, "hp_max": hp_max, "ratio": ratio}).encode('utf-8')
+                {"hp": hp, "hp_max": hp_max, "ratio": ratio,
+                 "bot": bot}).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(body)))

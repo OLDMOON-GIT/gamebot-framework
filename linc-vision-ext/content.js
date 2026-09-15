@@ -243,4 +243,46 @@
   setInterval(pump, 3000); // video 엘리먼트가 교체돼도 다시 붙는다
   pump();
   log('시작됨 (네이티브 프레임 브리지)');
+
+
+  // ── 확장 HUD UI(BTS-1033474 계열, 사용자 지시 '크롬 익스텐션 UI') ──
+  // 게임 화면 좌상단에 봇 상태 패널을 띄운다. pointer-events:none 이므로
+  // 게임 조작을 절대 가로채지 않는다. 데이터는 ext_vision /hp(봇 게시값
+  // 우선). 이 파일은 크롬 재시작 시점부터 상주한다(그 전엔 페이지 주입본
+  // 이 동일 UI를 제공).
+  function installHudUi() {
+    if (document.getElementById('linc-bot-hud')) return;
+    const panel = document.createElement('div');
+    panel.id = 'linc-bot-hud';
+    panel.style.cssText = 'position:fixed;left:12px;top:12px;z-index:2147483647;pointer-events:none;background:rgba(10,12,18,0.75);border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:10px 14px;color:#eee;font:12px/1.5 monospace;min-width:160px;box-shadow:0 2px 12px rgba(0,0,0,.5)';
+    panel.innerHTML = '<div style="font-weight:bold;color:#7ec8ff;letter-spacing:1px;margin-bottom:5px">LINC BOT</div>'
+      + '<div style="width:160px;height:10px;background:#1a1a1a;border-radius:5px;overflow:hidden;border:1px solid #000">'
+      + '<div id="lb-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#3ddc84,#a5ffb0);transition:width .3s"></div></div>'
+      + '<div id="lb-txt" style="margin-top:5px">HP --%</div>'
+      + '<div id="lb-sub" style="color:#9aa;font-size:11px">초기화...</div>';
+    document.body.appendChild(panel);
+    const fill = document.getElementById('lb-fill');
+    const txt = document.getElementById('lb-txt');
+    const sub = document.getElementById('lb-sub');
+    async function poll() {
+      try {
+        const r = await (await fetch(SERVER + '/hp?scale=4')).json();
+        const hp = (r.bot && r.bot.ratio != null) ? r.bot.ratio :
+                   (r.ratio != null && r.ratio !== false) ? r.ratio :
+                   (r.hp != null && r.hp_max ? r.hp / r.hp_max : null);
+        if (hp != null) {
+          fill.style.width = Math.round(hp * 100) + '%';
+          fill.style.background = hp < 0.45 ? 'linear-gradient(90deg,#ff5252,#ff8a80)'
+            : hp < 0.8 ? 'linear-gradient(90deg,#ffd23f,#ffe082)'
+            : 'linear-gradient(90deg,#3ddc84,#a5ffb0)';
+          txt.textContent = 'HP ' + Math.round(hp * 100) + '%' + (r.hp ? ' (' + r.hp + '/' + r.hp_max + ')' : '');
+        }
+        sub.textContent = r.bot ? ('사냥 ' + (r.bot.kills || 0) + '회 · 봇 판독') : '봇 대기 중';
+      } catch (e) { sub.textContent = '수신 없음(ext_vision 다운?)'; }
+    }
+    setInterval(poll, 500);
+    poll();
+    log('HUD UI 설치');
+  }
+  installHudUi();
 })();
