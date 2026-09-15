@@ -72,8 +72,11 @@ def main():
                 time.sleep(1.0)
                 waited += 1
             before = pickup_count(img, w)
-            w.key("F4", w.geometry())
-            time.sleep(1.2)
+            # 사용자 지시(2026-09-16): F4는 한 번만 누르지 말 것 — 여러 번.
+            # 반경에 박스가 여러 개면 연타로 순차 줍기.
+            for _f4 in range(4):
+                w.key("F4", w.geometry())
+                time.sleep(1.0)
             gain = max(0, pickup_count(w.capture(), w) - before)
             if gain:
                 picked += gain
