@@ -258,9 +258,9 @@
   const css = document.createElement('style');
   css.textContent = `
 #linc-bot-hud *{box-sizing:border-box}
-#linc-bot-hud{position:fixed;left:14px;bottom:14px;z-index:2147483647;
+#linc-bot-hud{position:fixed;left:0;bottom:0;z-index:2147483647;
   background:linear-gradient(175deg,#16294f 0%,#0b1730 55%,#081026 100%);
-  border:2px solid #8a6a2f;border-radius:4px;padding:14px 18px 16px 26px;
+  border:2px solid #8a6a2f;border-radius:0 10px 0 0;padding:14px 18px 16px 26px;
   color:#e8e0c8;font:14px/1.55 'Gulim','Malgun Gothic',sans-serif;
   min-width:340px;box-shadow:0 0 0 1px #3a2c10,0 10px 34px rgba(0,0,0,.75),inset 0 0 22px rgba(0,10,40,.55);user-select:none}
 #linc-bot-hud::before{content:'';position:absolute;left:6px;top:8px;bottom:8px;width:5px;
