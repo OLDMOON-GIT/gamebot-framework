@@ -63,6 +63,30 @@ class PotionKeys:
         # 몹 클릭(yield_click)만 양보하면 되고 물약은 즉시 발동한다.
         window.key(name, window.geometry())
 
+    _PROBE_KEYS = ("F7", "F8", "F9")
+    _probe_idx = 0
+
+    def _probe_next(self, window, hp):
+        """미시험 키 1회 시험. 위기 물약 확정 시 True(이번 턴 소진)."""
+        while self._probe_idx < len(self._PROBE_KEYS):
+            key = self._PROBE_KEYS[self._probe_idx]
+            self._probe_idx += 1
+            gained, hp_after = self._try_key(window, key, hp)
+            if gained and hp_after and (hp_after - hp) >= 0.12:
+                log(f"키 감별: {key} 회복 +{hp_after - hp:.2f} — 위기 물약 확정")
+                try:
+                    from bot_settings import save as _save
+                    s = _save({})
+                    s["crisis_potion"] = {"key": key, "kind": "붉은급",
+                                          "heal_pct": round((hp_after - hp) * 100)}
+                    _save(s)
+                except Exception:
+                    pass
+                return True
+            log(f"키 감별: {key} 무반응/소회복(+{(hp_after or hp) - hp:.2f}) — 다음")
+            return True   # 이번 위기 턴은 감별에 사용
+        return False
+
     def _try_key(self, window, name, hp):
         """키 하나를 누르고 재판독해 반응 여부를 돌려준다."""
         self._press(window, name)
@@ -114,6 +138,13 @@ class PotionKeys:
             return SKIP
         self._low_since = None
         self._last_used = now
+
+        # 물약 키 자동 감별(사용자 지시 2026-09-16 '화면 보고 간파'의 실측
+        # 대체 — 아이콘 색은 프레임 때문에 구분 불가): 위기 상황마다 아직
+        # 시험 안 키(F7/F8/F9)를 하나씩 1회 눌러 회복량을 기록한다.
+        # 회복 +12%p 이상이면 위기 물약으로 확정 저장.
+        if hp < 0.55 and self._probe_next(window, hp):
+            return USED
 
         second = "F6" if self._first_key == "F5" else "F5"
         gained, hp_after = self._try_key(window, self._first_key, hp)
