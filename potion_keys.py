@@ -66,6 +66,32 @@ class PotionKeys:
         # 몹 클릭(yield_click)만 양보하면 되고 물약은 즉시 발동한다.
         window.key(name, window.geometry())
 
+    _PROBE_KEYS = ("F7", "F8")
+
+    def _probe_next(self, window, hp):
+        """위기마다 미시험 키 1회 시험 — 빨간 물약(+15%p↑) 확정."""
+        while self._probe_idx < len(self._PROBE_KEYS):
+            key = self._PROBE_KEYS[self._probe_idx]
+            self._probe_idx += 1
+            gained, hp_after = self._try_key(window, key, hp)
+            inc = (hp_after - hp) if (gained and hp_after) else 0
+            if inc >= 0.15:
+                log(f"감별: {key} +{inc:.0%} — 빨간 물약! 위기 슬롯 확정")
+                try:
+                    from bot_settings import load as _l, save as _sv
+                    s = dict(_l(refresh=0))
+                    s["crisis_potion"] = {"key": key, "kind": "빨간",
+                                          "heal_pct": round(inc * 100)}
+                    _sv(s)
+                except Exception:
+                    pass
+                return True
+            log(f"감별: {key} +{inc:.0%} — 다음 키")
+            return True
+        return False
+
+    _probe_idx = 0
+
     def _try_key(self, window, name, hp):
         """키 하나를 누르고 재판독해 반응 여부를 돌려준다."""
         self._press(window, name)
@@ -122,11 +148,15 @@ class PotionKeys:
         self._low_since = None
         self._last_used = now
 
-        # 세팅값 감별(사용자 지시 2026-09-16): 위기(<red_pct)엔 UI에서
-        # 지정한 위기 물약 키, 평상엔 주 물약 키 — 설정 그대로 따른다.
+        # 세팅값 감별(사용자 지시): 위기(<red_pct)엔 지정한 위기 물약 키.
+        # 미지정이면 자동 감별 — F7/F8/F9를 위기마다 1회씩 시험해
+        # +15%p 이상(빨간 물약: 리니지 대회복 HP 45~60급)을 찾아 확정 저장.
         second = self._alt_key
-        if hp < self._red_pct and self._crisis_key:
-            self._first_key = self._crisis_key
+        if hp < self._red_pct:
+            if self._crisis_key:
+                self._first_key = self._crisis_key
+            elif self._probe_next(window, hp):
+                return USED
         gained, hp_after = self._try_key(window, self._first_key, hp)
         if not gained:
             gained, hp_after = self._try_key(window, second, hp)
