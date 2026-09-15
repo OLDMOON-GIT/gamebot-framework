@@ -15,6 +15,8 @@ BTS-1033250 실측: F6 = 물약(수량 1011→1010 확인), F5 = 빈 슬롯이�
 """
 import time
 
+from bot_settings import load as load_settings
+
 from user_gate import user_active  # 테스트 patch 호환(양보 게이트는 제거됨)
 
 from linux_vision import hp_read, note_recovery
@@ -61,9 +63,13 @@ class PotionKeys:
         # 오염시켰다(2026-09-15 사고) — 검증된 F6을 우선 키로 둔다.
         self._first_key = "F6"
         self._dry = 0             # 연속 무반응 턴 수
-        # HP 소스 주입(BTS-1033471): onestep_hunt가 확장 네이티브 판독
-        # (ext_vision /hp) 우선 경로를 넘긴다. None이면 기존 CDP 판독.
         self._read = read
+        self._alt_key = "F5"
+        self._return_key = "F8"
+        self._chain_max = CHAIN_MAX
+        self._danger = EMERGENCY_HP
+        self._recover_to = POTION_HP
+        self._apply_settings()
 
     def _press(self, window, name):
         # 물약 키(F5/F6)는 마우스와 무관한 게임 키 입력이다. 종전 양보
@@ -109,7 +115,22 @@ class PotionKeys:
             return base
         return min(0.92, base + drop_rate)
 
+    def _apply_settings(self):
+        """확장 UI 설정 반영(키/임계/상한). load()는 5초 캐시라 매 턴
+        호출해도 가볍다."""
+        s = load_settings()
+        self.threshold = s["potion_start_pct"] / 100.0
+        self._first_key = s["potion_key"]
+        self._alt_key = s["potion_key_alt"]
+        self._return_key = s["return_key"]
+        self._chain_max = s["chain_max"]
+        self._danger = s["danger_pct"] / 100.0
+        self._recover_to = s["recover_to_pct"] / 100.0
+        return s.get("enabled", True)
+
     def check(self, window, hp):
+        if not self._apply_settings():
+            return SKIP
         """물약이 필요하면 (2프레임 확인 후) F5/F6을 누른다.
 
         반환값: USED / SKIP / UNKNOWN / EXHAUSTED. EXHAUSTED를 받은 봇은
@@ -140,14 +161,14 @@ class PotionKeys:
         # 단 F8은 되돌릴 수 없다(주문서 소모+이탈) — 발사 직전 재판독으로
         # 여전히 위험인지 2중 확인한다(2026-09-15 사고: 만피 오독→무반응
         # 3회→소진 오판→귀환까지 연쇄).
-        if hp < EMERGENCY_HP:
+        if hp < self._danger:
             if self._read:
                 rc = self._read(window)
                 if rc is not None and rc >= EMERGENCY_HP:
                     log(f"귀환 직전 재확인 HP {rc:.2f} — 취소(오독 방어)")
                     return SKIP
-            log(f"HP 위험({hp:.2f}) — {EMERGENCY_RETURN_KEY} 귀환 주문서")
-            window.key(EMERGENCY_RETURN_KEY, window.geometry())
+            log(f"HP 위험({hp:.2f}) — {self._return_key} 귀환 주문서")
+            window.key(self._return_key, window.geometry())
             return RETURN
 
         # 투입 직전 최종 확인(2026-09-15 만피 낭비 재발): 발사 순간 다시
@@ -158,12 +179,10 @@ class PotionKeys:
                 log(f"투입 직전 회복 확인(HP {recheck:.2f}) — 취소")
                 return SKIP
 
-        second = "F6" if self._first_key == "F5" else "F5"
+        second = self._alt_key
         gained, hp_after = self._try_key(window, self._first_key, hp)
         if not gained:
             gained, hp_after = self._try_key(window, second, hp)
-            if gained:
-                self._first_key = second
         if gained:
             self._dry = 0
             # 피가 많이 딸리면 여러 번(2026-09-15 사용자 지시): 투입 후에도
@@ -172,7 +191,8 @@ class PotionKeys:
             base_hp = hp
             # 위기(사용자 지시 '40퍼 쭉쭉 내려가면 80 이상으로') 시작이
             # 낮으면 상한을 늘린다.
-            limit = CHAIN_MAX if hp >= 0.55 else CHAIN_MAX + 2
+            limit = self._chain_max if hp >= 0.55 else self._chain_max + 2
+            thr = max(thr, self._recover_to)
             while (hp_after is not None and hp_after < thr
                    and chain < limit):
                 time.sleep(CHAIN_GAP)
@@ -201,6 +221,6 @@ class PotionKeys:
                     self._dry = 0
                     return SKIP
             log("물약 소진 — F8 귀환 주문서")
-            window.key(EMERGENCY_RETURN_KEY, window.geometry())
+            window.key(self._return_key, window.geometry())
             return RETURN
         return USED

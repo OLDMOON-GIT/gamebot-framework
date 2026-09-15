@@ -142,21 +142,14 @@ class TestPotionKeys(unittest.TestCase):
         # 0.81은 기본 임계 위라 누르지 않는다
         self.assertEqual(p.check(self.w, 0.81), SKIP)
 
-    def test_F5_성공_후에는_F5를_먼저_누른다(self):
-        # F6 무반응 → F5 반응: 다음 사용부터 F5 우선(학습).
+    def test_설정_키_우선_고정_무반응시_보조_폴백(self):
+        # 확장 UI 설정(BTS): potion_key가 매 턴 고정된다(학습 리셋 제거).
+        # F6(설정) 무반응 → F5(보조) 반응. 다음 턴에도 설정 키 F6 우선.
         reread = iter([0.79, 0.95])  # F6 재판독 무반응, F5 재판독 상승
         p = self._potion(lambda img: next(reread))
         self.assertEqual(self._armed(p, 0.79), USED)
         self.assertEqual(self._presses(), ["F6", "F5"])
-        self.assertEqual(p._first_key, "F5")
-
-        p._last_used -= COOLDOWN + 0.1
-        self.assertEqual(p.check(self.w, 0.70), SKIP)  # 1프레임 기록
-        p._low_since -= potion_keys.CONFIRM_GAP + 0.1
-        reread2 = iter([0.95])
-        with patch.object(potion_keys, "hp_read", lambda img: next(reread2)):
-            self.assertEqual(p.check(self.w, 0.70), USED)
-        self.assertEqual(self._presses(), ["F6", "F5", "F5"])
+        self.assertEqual(p._first_key, "F6")  # 설정 키 유지
 
 
 if __name__ == "__main__":
