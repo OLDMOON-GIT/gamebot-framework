@@ -412,8 +412,39 @@
     p.style.left = (v ? Math.max(0, Math.round(v.getBoundingClientRect().left)) : 0) + 'px';
     p.style.bottom = '0px';
   }
+
+  function makeDraggable() {
+    // 사용자가 직접 위치를 잡는다(2026-09-16): 헤더(제목/⚙ 영역)를
+    // 드래그하면 패널이 따라오고, 놓은 위치가 localStorage에 저장돼
+    // 새로고침/재주입 후에도 유지된다. 앵커(자동 배치)보다 우선.
+    const p = document.getElementById('linc-bot-hud');
+    const head = document.getElementById('lb-head');
+    if (!p || !head) return;
+    let sx = 0, sy = 0, ox = 0, oy = 0, moving = false;
+    head.style.cursor = 'move';
+    head.addEventListener('mousedown', e => {
+      if (e.target.id === 'lb-gear') return;
+      moving = true; sx = e.clientX; sy = e.clientY;
+      const r = p.getBoundingClientRect(); ox = r.left; oy = r.top;
+      p.style.right = 'auto'; p.style.bottom = 'auto';
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', e => {
+      if (!moving) return;
+      p.style.left = Math.max(0, ox + e.clientX - sx) + 'px';
+      p.style.top = Math.max(0, oy + e.clientY - sy) + 'px';
+    });
+    window.addEventListener('mouseup', () => {
+      if (!moving) return; moving = false;
+      try { localStorage.setItem('lincHudPos', JSON.stringify({l: p.style.left, t: p.style.top})); } catch (_) {}
+    });
+    try {
+      const saved = JSON.parse(localStorage.getItem('lincHudPos') || 'null');
+      if (saved && saved.l && saved.t) { p.style.left = saved.l; p.style.top = saved.t; p.style.right = 'auto'; p.style.bottom = 'auto'; }
+    } catch (_) {}
+  }
   async function poll() {
-    anchorToGame();
+    if (!localStorage.getItem('lincHudPos')) anchorToGame();
     try {
       const r = await (await fetch(S + '/hp?scale=4')).json();
       let hp = (r.hp != null && r.hp_max && r.hp > 0) ? r.hp / r.hp_max :
