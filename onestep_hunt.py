@@ -5,7 +5,9 @@
 BTS-1033250로 종전 퀵슬롯 좌표 클릭은 폐지).
 모든 터치 전 사용자 양보 게이트. 근접 몹 없으면 대기(배회 없음).
 """
+import json
 import time
+import urllib.request
 from pathlib import Path
 
 import cv2
@@ -19,6 +21,7 @@ from user_gate import user_active
 RUNTIME = Path("/tmp/linc-bot-linux")
 STOP = RUNTIME / "stop"
 NEAR_RADIUS = 260            # 한 칸~두 칸: 캐릭터 중심 이 반경 몹만
+EXT_HP_URL = "http://127.0.0.1:17311/hp?scale=4"
 
 
 def log(msg):
@@ -80,21 +83,114 @@ def near_mobs(prev, cur, char):
     return sorted(mobs, key=lambda m: -m[2])
 
 
+class ExtHpSource:
+    """크롬 확장(linc-vision-ext → ext_vision /hp) 네이티브 HP 판독 소스.
+
+    사용자 지시(2026-09-15): 'HUD를 크롬익스텐션으로 개발하라니까'. CDP
+    캡처는 1280x960 원본을 창 크기로 확대한 화면을 다시 읽어 보간 얼룩·
+    시프트로 OCR이 흔들렸다(BTS-1033250/1033460/1033467). 확장은 video
+    엘리먼트에서 네이티브 픽셀을 직접 뽑고 비율 스케일링으로 rect를
+    맞춘다(실측 2026-09-15: 20/20 판독 성공). probe()는 실패 시 None —
+    호출부에서 CDP hp_read로 폴백한다.
+    """
+
+    def __init__(self, url=EXT_HP_URL, timeout=1.5):
+        self.url = url
+        self.timeout = timeout
+
+    def probe(self):
+        """(cur, hp_max) 반환. 형식이 유효하지 않으면 None."""
+        try:
+            with urllib.request.urlopen(self.url, timeout=self.timeout) as r:
+                payload = json.loads(r.read().decode())
+        except Exception:
+            return None
+        cur, mx = payload.get("hp"), payload.get("hp_max")
+        if not (isinstance(cur, int) and isinstance(mx, int)):
+            return None
+        if mx <= 0 or cur < 0 or cur > mx:
+            return None
+        return cur, mx
+
+    def read(self):
+        got = self.probe()
+        return None if got is None else got[0] / got[1]
+
+
+def calibrate_hud(src, need=3, tries=8, delay=2.5):
+    """사냥 진입 전 HUD 확보 게이트(사용자 지시 2026-09-15: '막대를 처음에
+    제대로 파악하고 진입하라꼬'). HP 숫자를 연속 need회 일관(hp_max 동일)
+    판독해야 진입을 승인한다. 실패 시 None — 호출부는 사냥을 시작하지 않는다.
+    종전엔 캘리브레이션 없이 진입해 HUD가 어긋난 채 사냥하다 'HP 판독 불가
+    12회'로 중단됐다(BTS-1033460).
+    """
+    streak = 0
+    last = None
+    for _ in range(tries):
+        if STOP.exists():
+            return None
+        got = src.probe()
+        if got is None:
+            streak = 0
+            last = None
+        else:
+            streak = streak + 1 if (last and got[1] == last[1]) else 1
+            last = got
+            if streak >= need:
+                return got
+        time.sleep(delay)
+    return None
+
+
+def calibrate_cdp(w, need=3, tries=8, delay=2.5):
+    """CDP 경로 캘리브레이션(확장 경로 확보 실패 시 폴백 검증)."""
+    streak = 0
+    for _ in range(tries):
+        if STOP.exists():
+            return None
+        try:
+            hp = hp_read(w.capture())
+        except Exception:
+            hp = None
+        streak = streak + 1 if hp is not None else 0
+        if streak >= need:
+            return hp
+        time.sleep(delay)
+    return None
+
+
 def main():
     STOP.unlink(missing_ok=True)
     w = CdpWindow(port=EXT_PORT)
+    ext_hp = ExtHpSource()
+    log("사냥 진입 전 HUD 캘리브레이션(확장 네이티브 판독)")
+    base = calibrate_hud(ext_hp)
+    if base is None:
+        log("확장 HUD 캘리브레이션 실패 — CDP 경로로 재확인")
+        if calibrate_cdp(w) is None:
+            log("HUD 캘리브레이션 실패(확장+CDP 모두) — 사냥 진입 보류(사망 방지)")
+            return
+        log("CDP HUD 확보 — 사냥 시작(확장 경로는 회복 시 자동 우선)")
+    else:
+        log(f"HUD 확보: HP {base[0]}/{base[1]} — 사냥 시작")
+
+    def read_hp_source(window):
+        """HP 소스: 확장 네이티브 우선, CDP hp_read 폴백(BTS-1033471)."""
+        ratio = ext_hp.read()
+        return ratio if ratio is not None else hp_read(window.capture())
+
     log("한 칸 거리 사냥 시작(이동 없음, 근접 몹만)")
     kills = 0
     hp_unread = 0
     prev = None
-    potion = PotionKeys()
+    potion = PotionKeys(read=read_hp_source)
     while not STOP.exists():
         try:
             if not w.active():
                 time.sleep(5)
                 continue
             cur = w.capture()
-            hp = hp_read(cur)
+            hp = read_hp_source(w)
             potion_delayed = False
             if hp is None:
                 # HP 판독 불가 = 물약/이탈 모두 무력. 이 상태로 몹을 치면

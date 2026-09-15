@@ -38,12 +38,15 @@ def log(msg):
 class PotionKeys:
     """봇 루프마다 check(window, hp)를 한 번 부른다."""
 
-    def __init__(self, threshold=POTION_HP):
+    def __init__(self, threshold=POTION_HP, read=None):
         self.threshold = threshold
         self._last_used = 0.0
         self._low_since = None    # 임계 미만 관측 시작 시각(2프레임 확인)
         self._first_key = "F5"    # 먼저 누를 키(마지막으로 성공한 키)
         self._dry = 0             # 연속 무반응 턴 수
+        # HP 소스 주입(BTS-1033471): onestep_hunt가 확장 네이티브 판독
+        # (ext_vision /hp) 우선 경로를 넘긴다. None이면 기존 CDP 판독.
+        self._read = read
 
     def _yield_gate(self):
         """사용자가 마우스를 쓰는 동안 키 입력을 양보한다."""
@@ -64,7 +67,8 @@ class PotionKeys:
         # 되고, 없는 '무반응'을 근거로 두 번째 키까지 눌러 물약을 2개 쓴다.
         note_recovery(POTION_WAIT + 2.0)
         time.sleep(POTION_WAIT)
-        hp_after = hp_read(window.capture())
+        hp_after = (self._read(window) if self._read
+                    else hp_read(window.capture()))
         gained = hp_after is not None and hp_after > hp + GAIN_MIN
         return gained, hp_after
 
