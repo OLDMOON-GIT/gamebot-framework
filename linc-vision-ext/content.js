@@ -362,9 +362,9 @@
   async function poll() {
     try {
       const r = await (await fetch(S + '/hp?scale=4')).json();
-      const hp = (r.bot && r.bot.ratio != null) ? r.bot.ratio :
-                 (r.ratio != null && r.ratio !== false) ? r.ratio :
-                 (r.hp != null && r.hp_max ? r.hp / r.hp_max : null);
+      const hp = (r.hp != null && r.hp_max) ? r.hp / r.hp_max :
+                 (r.bot && r.bot.ratio != null) ? r.bot.ratio :
+                 (r.ratio != null && r.ratio !== false) ? r.ratio : null;
       if (hp != null) {
         $('lb-fill').style.width = Math.round(hp * 100) + '%';
         $('lb-fill').style.background = hp < 0.45 ? 'linear-gradient(90deg,#e5484d,#ff8a8a)'
@@ -375,7 +375,7 @@
       $('lb-sub').textContent = r.bot ? ('사냥 ' + (r.bot.kills || 0) + '회 · 봇 판독') : '봇 대기 중';
     } catch (e) { $('lb-sub').textContent = '수신 없음'; }
   }
-  window.__lincHudUiTimer = setInterval(poll, 200);
+  window.__lincHudUiTimer = setInterval(poll, 100);
   poll(); loadSet();
   return 'ui-v3';
 }

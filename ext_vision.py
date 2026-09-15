@@ -186,6 +186,16 @@ class _Handler(BaseHTTPRequestHandler):
                 ent = _latest.get('bot')
                 if ent and time.time() - ent.get('ts', 0) <= 10.0:
                     bot = dict(ent)
+            # 확장 즉시 판독(100ms 신선도): UI 동기화 지연 단축용.
+            ext_hp = ext_hp_max = None
+            with _lock:
+                ent = _latest.get('hud') or {}
+                if time.time() - ent.get('ext_hp_ts', 0) <= 1.0:
+                    ext_hp, ext_hp_max = ent.get('ext_hp'), ent.get('ext_hp_max')
+            if ext_hp is not None and ext_hp_max:
+                hp, hp_max = ext_hp, ext_hp_max
+                if ratio is None and hp_max:
+                    ratio = hp / hp_max
             if bot is not None:
                 ratio = bot.get('ratio', ratio)
             body = json.dumps(
@@ -232,6 +242,30 @@ class _Handler(BaseHTTPRequestHandler):
 
     def log_message(self, *args):
         pass  # 접근 로그 침묵
+
+
+def _hp_reader_loop():
+    """확장 HUD(video 스트립)를 백그라운드 판독(사용자 지시 2026-09-15
+    'HP동기화 100ms'). read_hp는 tesseract 서브프로세스라 ~300ms가 바닥이
+    지만 항상 최신 프레임만 읽어 신선도를 유지한다."""
+    while True:
+        try:
+            cur, mx = read_hp(max_age=1.0)
+            if cur is not None:
+                with _lock:
+                    ent = _latest.setdefault('hud', {})
+                    ent['ext_hp'], ent['ext_hp_max'] = cur, mx
+                    ent['ext_hp_ts'] = time.time()
+        except Exception:
+            pass
+        time.sleep(0.05)
+
+
+def start_reader_thread():
+    import threading
+    t = threading.Thread(target=_hp_reader_loop, daemon=True)
+    t.start()
+    return t
 
 
 def start(port=DEFAULT_PORT):
@@ -368,6 +402,7 @@ if __name__ == '__main__':
     import sys
     sys.path.insert(0, '/home/oldmoon/workspace/linc-bot')
     start()
+    start_reader_thread()
     print('수신 서버 대기 중 127.0.0.1:%d (Ctrl-C 종료)' % DEFAULT_PORT)
     ok = fail = 0
     try:
