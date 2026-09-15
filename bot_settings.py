@@ -28,7 +28,7 @@ DEFAULTS = {
     # 물약 슬롯(사용자 지시 2026-09-15: 키 배치 + 종류별 회복량 계산).
     # heal_pct = 물약 1개 회복량(최대 HP 대신 %). 종류 프리셋은
     # POTION_KINDS 참조. 실측 학습(potion_keys EMA)이 값을 수렴시킨다.
-    "main_potion": {"key": "F5", "kind": "맑은", "heal_pct": 8},
+    "main_potion": {"key": "F6", "kind": "맑은", "heal_pct": 8},
     "crisis_potion": {"key": "", "kind": "", "heal_pct": 0},  # 위기용(빈=주 물약)
     "potion_key_alt": "F6",    # 보조(무반응 폴백)
     "return_key": "F8",        # 귀환 주문서

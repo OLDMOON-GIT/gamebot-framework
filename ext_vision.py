@@ -48,6 +48,25 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         kind = self.path.strip('/').lower()
+        if kind == 'bot-settings':
+            try:
+                n = int(self.headers.get('Content-Length') or 0)
+                payload = json.loads(self.rfile.read(n) or b'{}')
+                import bot_settings
+                saved = bot_settings.save(payload)
+            except Exception:
+                self.send_response(400)
+                self._cors()
+                self.end_headers()
+                return
+            body = json.dumps(saved).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self._cors()
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if kind == 'bot-hp':
             # 봇(onestep)이 판독한 HP를 게시 — 확장 UI가 /hp에서 우선
             # 표시한다(2026-09-15: 크롬 익스텐션 HUD UI 데이터 소스).
@@ -137,6 +156,16 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if self.path.startswith('/bot-settings'):
+            import bot_settings
+            body = json.dumps(bot_settings.load(refresh=0)).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self._cors()
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path.startswith('/hp'):
             try:
                 q = self.path.split('?', 1)[1] if '?' in self.path else ''

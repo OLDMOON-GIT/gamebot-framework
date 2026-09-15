@@ -76,7 +76,23 @@ class PotionKeys:
         gained = hp_after is not None and hp_after > hp + GAIN_MIN
         return gained, hp_after
 
+    def _apply_key_setting(self):
+        """UI 설정(물약 슬롯)에서 주 물약 키만 반영 — 계산 로직은 스테이블
+        유지(2026-09-15 사용자: UI는 아까 것, 동작은 안정)."""
+        if getattr(self, "_key_applied", False):
+            return   # 초기 1회만 — 이후 학습(_first_key) 보존
+        self._key_applied = True
+        try:
+            from bot_settings import load as _ls
+            main = _ls().get("main_potion") or {}
+            k = main.get("key")
+            if k:
+                self._first_key = k
+        except Exception:
+            pass
+
     def check(self, window, hp):
+        self._apply_key_setting()
         """물약이 필요하면 (2프레임 확인 후) F5/F6을 누른다.
 
         반환값: USED / SKIP / UNKNOWN / EXHAUSTED. EXHAUSTED를 받은 봇은

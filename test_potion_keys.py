@@ -11,11 +11,16 @@ import unittest
 from unittest.mock import Mock, patch
 
 import potion_keys
+import bot_settings
+from unittest.mock import patch as _patch
 from potion_keys import COOLDOWN, EXHAUSTED, SKIP, UNKNOWN, USED, PotionKeys
 
 
 class TestPotionKeys(unittest.TestCase):
     def setUp(self):
+        _p = _patch.object(bot_settings, "PATH", "/nonexistent/settings.json")
+        _p.start(); self.addCleanup(_p.stop)
+        bot_settings._cache["t"] = 0.0
         self.w = Mock()
         self.w.geometry.return_value = (0, 0, 1933, 1332)
 
