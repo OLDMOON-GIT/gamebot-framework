@@ -47,6 +47,11 @@ HP_GAUGE_TRACK = 334.0
 # BTS-1033358: 실측 37px에 비해 60px는 과도한 여유였다(막대 밖 빨강까지
 # 사정권에 들어옴) → 실측 + 여유 8px로 좁힌다.
 HP_GAUGE_GAP_TOL = 45
+# HP 숫자 'nnn/nnn' 텍스트 x 밴드(BTS-1033467). 텍스트 x 시작은 실측 두
+# 레이아웃(2026-09-13 x905, 2026-09-10 x918)에서 이 밴드 안이었다. y는
+# 재접속마다 시프트하므로 find_hp_text_rect()가 막대 y 앵커로 매번 찾는다.
+HP_TEXT_X0, HP_TEXT_X1 = 890, 1040
+HP_TEXT_LINE_MIN_PX = 12   # 텍스트 라인으로 인정할 최소 row 밝은 픽셀 수
 # 갭 건너편을 '막대 채움'으로 인정할 최소 높이 비율. 채움은 막대 높이를
 # 꽉 채우므로(29/29행) 0.70이면 통과하고, 이름표/데미지 숫자 같은 얇은
 # 빨강(실측 5행)은 탈락한다. BTS-1033358.
@@ -109,6 +114,32 @@ def parse_ratio(text, label):
     return current / maximum
 
 
+def _gauge_body_mask(img):
+    """HP 게이지 빨간 막대 bbox(절대좌표)와 빨강 마스크를 찾는다.
+
+    hp_from_gauge와 find_hp_text_rect가 공유하는 탐색 본체(BTS-1033467).
+    필터 근거는 hp_from_gauge docstring: 높이 22~45(하이라이트/글자 배제),
+    w/h 상한 15, 최광폭 성분. 못 찾으면 (None, None).
+    """
+    x0, y0 = HP_GAUGE_BAND[0], HP_GAUGE_BAND[1]
+    region = crop(img, HP_GAUGE_BAND)
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+    red = cv2.inRange(hsv, (0, 150, 120), (10, 255, 255)) | \
+        cv2.inRange(hsv, (170, 150, 120), (180, 255, 255))
+    joined = cv2.morphologyEx(red, cv2.MORPH_CLOSE, np.ones((1, 5), np.uint8))
+    contours, _ = cv2.findContours(joined, cv2.RETR_EXTERNAL,
+                                   cv2.CHAIN_APPROX_SIMPLE)
+    body = None
+    for contour in contours:
+        x, y, width, height = cv2.boundingRect(contour)
+        if width >= 40 and 22 <= height <= 45 and width / height <= 15:
+            if body is None or width > body[2]:
+                body = (x + x0, y + y0, width, height)
+    if body is None:
+        return None, None
+    return body, red
+
+
 def hp_from_gauge(img):
     """HUD HP 게이지(빨간 채움 막대) 폭으로 HP 비율을 즉시 판독한다.
 
@@ -127,22 +158,11 @@ def hp_from_gauge(img):
     갭(실측 37px, 여유 포함 GAP_TOL)만 이어붙인다. 멀리 떨어진 빨간
     장식은 갭 상한을 넘겨 제외되므로 과대평가(=물약 미투입)로 가지 않는다.
     """
-    region = crop(img, HP_GAUGE_BAND)
-    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
-    red = cv2.inRange(hsv, (0, 150, 120), (10, 255, 255)) | \
-        cv2.inRange(hsv, (170, 150, 120), (180, 255, 255))
-    joined = cv2.morphologyEx(red, cv2.MORPH_CLOSE, np.ones((1, 5), np.uint8))
-    contours, _ = cv2.findContours(joined, cv2.RETR_EXTERNAL,
-                                   cv2.CHAIN_APPROX_SIMPLE)
-    body = None
-    for contour in contours:
-        x, y, width, height = cv2.boundingRect(contour)
-        if width >= 40 and 22 <= height <= 45 and width / height <= 15:
-            if body is None or width > body[2]:
-                body = (x, y, width, height)
+    body, red = _gauge_body_mask(img)
     if body is None:
         return None
-    bx, by, bw, bh = body
+    bx0, by0 = HP_GAUGE_BAND[0], HP_GAUGE_BAND[1]
+    bx, by, bw, bh = body[0] - bx0, body[1] - by0, body[2], body[3]
     rows = red[by:by + bh, :]
     cols = (rows > 0).sum(axis=0)
     # 막대 채움은 막대 높이를 꽉 채운다(실측 29/29행). 이름표·데미지 숫자
@@ -164,6 +184,70 @@ def hp_from_gauge(img):
     # min(1.0)이 만피로 뭉개서 '물약 미투입 → 사망' 방향으로 숨었다.
     right = min(right, bx + int(HP_GAUGE_TRACK) - 1)
     return float(min(1.0, (right - bx + 1) / HP_GAUGE_TRACK))
+
+
+def find_hp_text_rect(img):
+    """HP 숫자 'nnn/nnn' 텍스트 라인 rect를 막대 y 앵커로 동적 탐색한다.
+
+    BTS-1033467: 재접속·프레임마다 HUD가 시프트해 고정 rect 후보가 전멸
+    했다(막대 x도 730→718로 흔들리고 슬래시가 노이즈로 조각나는 프레임
+    실측). 대신 텍스트는 '막대 위에 겹쳐 그려진다'(hp_from_gauge docstring
+    실측)는 보장이 있으므로, 막대 세로 범위에 겹치는 밝은 텍스트 라인을
+    row 프로파일로 찾아 매 프레임 rect를 산출한다. 성분 단위 매칭과 달리
+    row 프로파일은 글자 쪼개짐에 둔감하다. x는 두 레이아웃(905/918 시작)
+    을 모두 담는 고정 밴드. 못 찾으면 None(고정 후보로 폴백).
+    """
+    body, _ = _gauge_body_mask(img)
+    if body is None:
+        return None
+    gx, gy, gw, gh = body
+    y0 = max(0, gy - 14)
+    y1 = min(img.shape[0], gy + gh + 14)
+    band = img[y0:y1, HP_TEXT_X0:HP_TEXT_X1]
+    gray = cv2.cvtColor(band, cv2.COLOR_BGR2GRAY)
+    _, th = cv2.threshold(gray, 190, 255, cv2.THRESH_BINARY)
+    rows = (th > 0).sum(axis=1)
+    raw = []
+    start = None
+    for i, v in enumerate(rows):
+        if v > 0 and start is None:
+            start = i
+        elif v == 0 and start is not None:
+            raw.append((start, i))
+            start = None
+    if start is not None:
+        raw.append((start, len(rows)))
+    # 성긴 글자 행 사이 짧은 갭은 한 라인으로 병합한다.
+    lines = []
+    for ls, le in raw:
+        if lines and ls - lines[-1][1] <= 3:
+            lines[-1][1] = le
+        else:
+            lines.append([ls, le])
+    center = gy + gh / 2.0 - y0   # 막대 중심의 rows 기준 위치
+    best = None
+    for ls, le in lines:
+        if not (7 <= le - ls <= 26):
+            continue
+        peak = int(rows[ls:le].max())
+        if peak < HP_TEXT_LINE_MIN_PX:
+            continue
+        dist = abs((ls + le) / 2.0 - center)
+        if best is None or dist < best[0]:
+            best = (dist, ls, le)
+    if best is None:
+        return None
+    _, ls, le = best
+    # 라인 y 범위 안에서 col 프로파일로 실제 텍스트 x 범위만 잡는다.
+    # 밴드 전체 폭을 쓰면 옆 UI 텍스트가 붙어 '2447' 같은 오독이 났다
+    # (2026-09-13 fixture 실측).
+    cols = (th[ls:le] > 0).sum(axis=0)
+    xs = np.nonzero(cols)[0]
+    if xs.size == 0:
+        return None
+    tx0, tx1 = int(xs[0]), int(xs[-1])
+    return (HP_TEXT_X0 + tx0 - 6, int(y0 + ls - 5),
+            (tx1 - tx0) + 12, int(le - ls) + 10)
 
 
 # 한 프레임에 이보다 크게 떨어지면 OCR 오독으로 보고 한 프레임 유보한다.
@@ -303,7 +387,12 @@ def hp_from_hud_digits(img):
         if not (0 < high and low <= high):
             continue           # 형식 오독 — 다음 후보 rect로 재시도
         return accept(low, high, idx)   # 유보(None)면 프레임을 버린다
-    for rect in HP_PAIR_RECTS:
+    # BTS-1033467: 동적 rect(막대 y 앵커 라인 탐색)를 합본 후보보다 먼저
+    # 시도한다. 고정 후보는 재접속 시프트에 매번 전멸해 왔다. 검은 mock
+    # 프레임처럼 막대가 없으면 None이 되어 기존 고정 후보 경로를 그대로
+    # 탄다(호출 순서/테스트 side_effect 불변).
+    dynamic = find_hp_text_rect(img)
+    for rect in ((dynamic,) if dynamic else ()) + HP_PAIR_RECTS:
         text = ocr(crop(img, rect), whitelist="0123456789/")
         if not isinstance(text, str) or text.count("/") != 1:
             continue

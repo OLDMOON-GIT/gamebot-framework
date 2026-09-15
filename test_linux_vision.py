@@ -361,6 +361,42 @@ class TestHpRead(unittest.TestCase):
             self.assertAlmostEqual(vision.hp_read(self.img), 0.13)
 
 
+class TestHpDynamicTextRect(unittest.TestCase):
+    """BTS-1033467: 막대 y 앵커 동적 rect — 고정 rect 시프트 전멸 대응.
+
+    재접속마다 HUD가 시프트해 고정 HP_CUR/MAX/PAIR 후보가 전멸했다.
+    find_hp_text_rect()가 두 실측 레이아웃(2026-09-13/09-15)에서 각기
+    다른 y를 정확히 찾아 'nnn/nnn' 판독에 성공해야 한다.
+    """
+
+    def _check(self, fixture, expected_low, expected_high):
+        img = cv2.imread(str(FIXTURES / fixture))
+        self.assertIsNotNone(img, f"{fixture} 없음")
+        vision._LAST_MAX = None
+        vision._LAST_RECT_IDX = 0
+        rect = vision.find_hp_text_rect(img)
+        self.assertIsNotNone(rect, f"{fixture}: 동적 rect 미탐지")
+        text = vision.ocr(vision.crop(img, rect), whitelist="0123456789/")
+        cs, ms = text.strip().split("/")
+        self.assertEqual(int(cs), expected_low, f"{fixture}: {text!r}")
+        self.assertEqual(int(ms), expected_high, f"{fixture}: {text!r}")
+
+    def test_0913_레이아웃(self):
+        self._check("hp_202_244.png", 202, 244)
+
+    def test_0915_시프트_레이아웃(self):
+        self._check("hp_2026-09-15_shift.png", 238, 263)
+
+    def test_동적_rect_실패시_hp_from_hud_digits는_고정_후보로_폴백(self):
+        # 막대가 없는(검은) 프레임에서는 동적 rect가 None이어야 하고,
+        # hp_from_hud_digits가 고정 후보 경로를 그대로 탄다(예외 없이 None).
+        import numpy as np
+        blank = np.zeros((1332, 1933, 3), dtype=np.uint8)
+        self.assertIsNone(vision.find_hp_text_rect(blank))
+        vision._LAST_MAX = None
+        self.assertIsNone(vision.hp_from_hud_digits(blank))
+
+
 class TestHpDenominatorGuard(unittest.TestCase):
     """분모(최대 HP) 점프 오독 가드 (BTS-1033250)."""
 
