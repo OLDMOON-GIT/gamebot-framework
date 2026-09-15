@@ -72,7 +72,7 @@ PY
     --use-gl=swiftshader --use-angle=swiftshader \
     --force-device-scale-factor=1 --no-sandbox \
     --no-first-run --no-default-browser-check --password-store=basic \
-    --window-size=1933,1332 --window-position=0,0 \
+    --window-size=2210,1552 --window-position=0,0 \
     'https://purpleon.plaync.com/webplay/linclassic' >> /home/oldmoon/workspace/linc-bot/botchrome.log 2>&1
   # 즉시 죽으면(=환경 문제) 백오프. 무한 크래시 루프로 CPU/로그를 태우지 않는다.
   if [ $(( $(date +%s) - start_ts )) -lt 15 ]; then
