@@ -60,7 +60,7 @@ def read_chat(img: np.ndarray) -> str:
     return res.stdout.decode("utf-8", "replace")
 
 
-def pickup_count(img: np.ndarray) -> int:
+def pickup_count(img: np.ndarray, win=None) -> int:
     """채팅창에 보이는 '획득' 메시지 라인 수.
 
     절대값 자체는 의미가 없다(채팅이 스크롤되면 줄어든다).
