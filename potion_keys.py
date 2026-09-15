@@ -75,8 +75,8 @@ class PotionKeys:
             self._probe_idx += 1
             gained, hp_after = self._try_key(window, key, hp)
             inc = (hp_after - hp) if (gained and hp_after) else 0
-            if inc >= 0.15:
-                log(f"감별: {key} +{inc:.0%} — 빨간 물약! 위기 슬롯 확정")
+            if inc >= 0.24:
+                log(f"감별: {key} +{inc:.0%}(≈{round(inc*253)}HP) — 빨간 물약! 위기 슬롯 확정")
                 try:
                     from bot_settings import load as _l, save as _sv
                     s = dict(_l(refresh=0))
@@ -149,8 +149,10 @@ class PotionKeys:
         self._last_used = now
 
         # 세팅값 감별(사용자 지시): 위기(<red_pct)엔 지정한 위기 물약 키.
-        # 미지정이면 자동 감별 — F7/F8/F9를 위기마다 1회씩 시험해
-        # +15%p 이상(빨간 물약: 리니지 대회복 HP 45~60급)을 찾아 확정 저장.
+        # 미지정이면 자동 감별 — F7/F8를 위기마다 1회씩 시험.
+        # 리니지 조사(2026-09-16): 맑은 HP6~27(F5 실측 20), 주홍 ~50,
+        # 빨간 그 이상(위기용). hp_max 253 기준 주홍 +20%p와 구분해
+        # **+24%p(≈61 HP) 이상**이면 빨간 물약으로 확정.
         second = self._alt_key
         if hp < self._red_pct:
             if self._crisis_key:
