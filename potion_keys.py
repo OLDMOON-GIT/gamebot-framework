@@ -113,11 +113,9 @@ class PotionKeys:
         try:
             from bot_settings import load as _ls
             s = _ls()
-            if not getattr(self, "_key_applied", False):
-                self._key_applied = True
-                k = (s.get("main_potion") or {}).get("key")
-                if k:
-                    self._first_key = k
+            k = (s.get("main_potion") or {}).get("key")
+            if k:
+                self._first_key = k   # 주 물약 우선 고정(사용자 지시 2026-09-16)
             self._crisis_key = (s.get("crisis_potion") or {}).get("key") or ""
             self._red_pct = s.get("red_pct", 45) / 100.0
             self._alt_key = s.get("potion_key_alt") or "F6"
@@ -162,8 +160,6 @@ class PotionKeys:
         gained, hp_after = self._try_key(window, self._first_key, hp)
         if not gained:
             gained, hp_after = self._try_key(window, second, hp)
-            if gained:
-                self._first_key = second   # 학습: 성공 키 우선(스테이블)
             if gained:
                 self._first_key = second
         if gained:
