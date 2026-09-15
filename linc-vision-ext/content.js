@@ -365,7 +365,7 @@
       let hp = (r.hp != null && r.hp_max && r.hp > 0) ? r.hp / r.hp_max :
                (r.bot && r.bot.ratio != null) ? r.bot.ratio :
                (r.ratio != null && r.ratio !== false) ? r.ratio : null;
-      if (hp != null && hp < 0.03) hp = null;  // 0% 오독 — 이전 표시 유지
+      if (hp != null && hp < 0.08) hp = null;  // 저값 오독 — 이전 표시 유지
       if (hp != null) {
         $('lb-fill').style.width = Math.round(hp * 100) + '%';
         $('lb-fill').style.background = hp < 0.45 ? 'linear-gradient(90deg,#e5484d,#ff8a8a)'
