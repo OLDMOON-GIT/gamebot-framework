@@ -41,7 +41,7 @@ DEFAULTS = {
     "return_key": "F8",        # 귀환 주문서
     "potion_start_pct": 80,    # 이 % 밑이면 물약 시작
     "recover_to_pct": 80,      # 이 % 이상까지 채운다(연속 투입 목표)
-    "red_pct": 45,             # 이 % 밑이면 빨간 물약(red_key 지정 시)
+    "red_pct": 30,             # 이 % 밑이면 위기 물약(맑은) — 45→30 하향(남발 사고)
     "green_pct": 0,            # 이 % 이상이면 초록 물약(green_key 지정 시)
     "danger_pct": 20,          # 이 % 밑이면 F8 귀환
     "chain_max": 6,            # 한 턴 연속 투입 상한(위기시 +2)
