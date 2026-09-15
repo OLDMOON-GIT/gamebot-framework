@@ -376,7 +376,7 @@
       $('lb-sub').textContent = r.bot ? ('사냥 ' + (r.bot.kills || 0) + '회 · 봇 판독') : '봇 대기 중';
     } catch (e) { $('lb-sub').textContent = '수신 없음'; }
   }
-  window.__lincHudUiTimer = setInterval(poll, 100);
+  window.__lincHudUiTimer = setInterval(poll, 50);
   poll(); loadSet();
   return 'ui-v3';
 }
