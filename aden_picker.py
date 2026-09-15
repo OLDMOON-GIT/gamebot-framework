@@ -36,7 +36,7 @@ def main():
     # 함께 누르며 게임 쿨다운 충돌로 양쪽 다 무반응 → HP 0.51 하락).
     picked = 0
     fails = 0
-    log("F4 아덴 줍기 시작")
+    log("F4 연속 줍기 시작(1회 1줍기 — 실측: 하나만 줍고 멈춤)")
     while not STOP.exists():
         try:
             if not w.active():
@@ -75,24 +75,34 @@ def main():
                 continue
             labels = good
 
-            before = pickup_count(img)
+            # F4는 1회 1줍기(실측 2026-09-15: 여러 개 중 하나만 줍고 멈춤
+            # — 사용자 보고). 드랍이 남아있는 동안 게임 쿨다운 간격으로
+            # 연속 누른다. 사용자 조작 중엔 잠깐 양보.
+            waited = 0
+            while user_active() and waited < 6 and not STOP.exists():
+                time.sleep(1.0)
+                waited += 1
+            before = pickup_count(img, w)
             # 사용자가 마우스로 조작 중이면 키만 스킵하고 잠시 양보
             waited = 0
             while user_active() and waited < 6 and not STOP.exists():
                 time.sleep(1.0)
                 waited += 1
             w.key("F4", w.geometry())
-            time.sleep(2.0)
-            gain = max(0, pickup_count(w.capture()) - before)
+            time.sleep(1.0)
+            gain = max(0, pickup_count(w.capture(), w) - before)
             if gain:
                 picked += gain
                 fails = 0
                 log(f"F4 줍기 획득 {gain} (누적 {picked})")
             else:
                 fails += 1
-                wait = LONG_WAIT if fails >= FAIL_LIMIT else RETRY_GAP
-                log(f"F4 무반응 ({fails}) — {wait}s 후 재시도")
-                time.sleep(wait)
+                if fails >= FAIL_LIMIT:
+                    log(f"F4 연속 무획득 {fails} — 드랍이 멀 수 있음, {LONG_WAIT}s 대기")
+                    time.sleep(LONG_WAIT)
+                    fails = 0
+                else:
+                    time.sleep(RETRY_GAP)
         except Exception as exc:
             log(f"오류: {exc} — 재접속")
             time.sleep(5)

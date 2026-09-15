@@ -22,7 +22,7 @@ from linux_vision import hp_read, note_recovery
 
 POTION_HP = 0.80      # 사용자 지정 임계: 80% 미만이면 물약
 CONFIRM_GAP = 0.35    # 2프레임 확인 최소 간격(초) — 속도/오독 방어 타협
-POTION_WAIT = 1.0     # 키 입력 후 재판독까지 대기(초) — 사망 방지 단축(2026-09-15)
+POTION_WAIT = 0.5     # 키 입력 후 재판독까지 대기(초) — 연속 투입 체감 2초→1초 미만(2026-09-15)
 COOLDOWN = 1.2        # 턴 간 쿨다운(초) — 게임 물약 재사용 대기 수준(2026-09-15 사용자 지시 '빨라')
 DANGER_COOLDOWN = 1.2  # 위험 구간(<0.45) 쿨다운 — 급할 때 빠르게(2026-09-15 사용자 지시)
 CHAIN_MAX = 4          # 한 턴 연속 투입 상한(피가 많이 딸리면 여러 번: 사용자 지시)
@@ -31,7 +31,7 @@ CHAIN_MAX = 4          # 한 턴 연속 투입 상한(피가 많이 딸리면 �
 # 귀환한다. 귀환 성공 여부와 무관하게 사냥은 중단이 안전하다.
 EMERGENCY_RETURN_KEY = "F8"
 EMERGENCY_HP = 0.20
-CHAIN_GAP = 1.0        # 연속 투입 간격(게임 물약 재사용 대기)
+CHAIN_GAP = 0.4        # 연속 투입 간격 — 게임 물약 쿨은 짧다(실측 연속 발동 확인)
 GAIN_MIN = 0.04       # 재판독에서 '올랐다'로 인정할 최소 상승 폭
 DRY_LIMIT = 3         # 연속 무반응 허용 턴 수(넘으면 재고 소진)
 
@@ -137,10 +137,26 @@ class PotionKeys:
         self._last_used = now
 
         # 비상 귀환(사용자 지시): HP<20%면 물약을 따질 새 없이 F8 귀환.
+        # 단 F8은 되돌릴 수 없다(주문서 소모+이탈) — 발사 직전 재판독으로
+        # 여전히 위험인지 2중 확인한다(2026-09-15 사고: 만피 오독→무반응
+        # 3회→소진 오판→귀환까지 연쇄).
         if hp < EMERGENCY_HP:
+            if self._read:
+                rc = self._read(window)
+                if rc is not None and rc >= EMERGENCY_HP:
+                    log(f"귀환 직전 재확인 HP {rc:.2f} — 취소(오독 방어)")
+                    return SKIP
             log(f"HP 위험({hp:.2f}) — {EMERGENCY_RETURN_KEY} 귀환 주문서")
             window.key(EMERGENCY_RETURN_KEY, window.geometry())
             return RETURN
+
+        # 투입 직전 최종 확인(2026-09-15 만피 낭비 재발): 발사 순간 다시
+        # 읽어 만피/회복됐으면 취소한다. 비용(판독 1회) < 물약 낭비.
+        if self._read:
+            recheck = self._read(window)
+            if recheck is not None and recheck >= thr:
+                log(f"투입 직전 회복 확인(HP {recheck:.2f}) — 취소")
+                return SKIP
 
         second = "F6" if self._first_key == "F5" else "F5"
         gained, hp_after = self._try_key(window, self._first_key, hp)
@@ -176,6 +192,14 @@ class PotionKeys:
         log(f"물약 무반응 F5/F6 ({self._dry}/{DRY_LIMIT}, HP {hp:.2f})")
         if self._dry >= DRY_LIMIT:
             # 일반 소진 — F8 귀환(사용자 지시: 사망 방지가 낫다).
+            # 되돌릴 수 없는 행동: 직전 재판독으로 HP가 실제 낮은지 확인
+            # (오독 무반응이 소진으로 보이는 사고 방어).
+            if self._read:
+                rc = self._read(window)
+                if rc is not None and rc >= 0.60:
+                    log(f"소진 판정 재확인 HP {rc:.2f} 안정 — 귀환 보류")
+                    self._dry = 0
+                    return SKIP
             log("물약 소진 — F8 귀환 주문서")
             window.key(EMERGENCY_RETURN_KEY, window.geometry())
             return RETURN

@@ -23,7 +23,7 @@ class F4PickupTests(unittest.TestCase):
                 patch.object(ap, "detect_labels", side_effect=lambda *a: next(labels)), \
                 patch.object(ap, "read_label_names", side_effect=lambda img, labs: labs), \
                 patch.object(ap, "tier_of", return_value=tier), \
-                patch.object(ap, "pickup_count", side_effect=lambda img: next(gains)), \
+                patch.object(ap, "pickup_count", side_effect=lambda img, win=None: next(gains)), \
                 patch.object(ap, "user_active", return_value=False), \
                 patch.object(ap.time, "sleep"), \
                 patch.object(ap, "STOP", stop), \
@@ -63,16 +63,17 @@ class F4PickupTests(unittest.TestCase):
 
     def test_드랍있고_획득증가면_F4누르고_성공(self):
         w = self._run(
-            label_seq=[[MagicMock()], []],
-            gain_seq=[5, 7],   # F4 전 5, 후 7 → 획득 +2
+            label_seq=[[MagicMock()] if i == 0 else [] for i in range(200)],
+            gain_seq=[5] + [7] * 400,
         )
-        w.key.assert_called_once_with("F4", (0, 0, 10, 10))
+        w.key.assert_called_with("F4", (0, 0, 10, 10))
         w.click.assert_not_called()   # 마우스 클릭 금지(nomouse)
 
-    def test_획득_무증가면_무반응_재시도(self):
+    def test_획득_무증가면_연속_시도(self):
+        # F4는 1회 1줍기 — 드랍이 남아있는 한 연속 누른다.
         w = self._run(
-            label_seq=[[MagicMock()], [MagicMock()], []],
-            gain_seq=[5, 5, 5, 5],    # 두 번 시도 모두 증가 없음
+            label_seq=[[MagicMock()] if i < 2 else [] for i in range(200)],
+            gain_seq=[5] * 400,
         )
         self.assertEqual(w.key.call_count, 2)
 

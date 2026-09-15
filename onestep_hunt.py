@@ -195,7 +195,9 @@ def hp_guard(ratio):
     if ratio is None:
         return None
     prev = _HP_GUARD["last"]
-    if prev is not None and abs(ratio - prev) > 0.30:
+    if prev is not None and abs(ratio - prev) > 0.15:
+        # 2026-09-15 재발: 만피(1.0)→0.79 오독(Δ0.21)이 0.30 임계를 뚫고
+        # 물약을 발사. 진짜 급락은 연속 2회로 다음 루프(0.5초)에 승인된다.
         _HP_GUARD["streak"] += 1
         if _HP_GUARD["streak"] >= 2:
             _HP_GUARD["last"] = ratio
