@@ -103,7 +103,7 @@ def main():
                 time.sleep(2.2)
                 img2 = w.capture()
                 c2 = find_character(img2)
-                if c2 and ((bx - c2[0]) ** 2 + (by - c2[1]) ** 2) > 100 ** 2:
+                if c2 and ((bx - c2[0]) ** 2 + (by - c2[1]) ** 2) > 150 ** 2:
                     log("이동 미완 — 다시 시도")
                     time.sleep(1.5)
                     continue

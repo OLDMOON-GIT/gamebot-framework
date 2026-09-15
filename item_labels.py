@@ -47,6 +47,7 @@ class ItemLabel:
     bottom: int      # 라벨 하단 y
     w: int           # 라벨 폭
     h: int           # 라벨 높이
+    name: str = ""   # 이름 OCR(등급 판별용)
 
     @property
     def click(self) -> tuple[int, int]:
