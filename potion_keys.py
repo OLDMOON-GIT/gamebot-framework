@@ -160,16 +160,8 @@ class PotionKeys:
                 self._first_key = self._crisis_key
             elif self._probe_next(window, hp):
                 return USED
-        # F5 소진 시 F6 사용(사용자 지시): F5가 빈 슬롯이면 헛누름이 게임
-        # 쿨을 소모해 F6마저 쿨에 막힌다(02:14 사고 — F6 있어도 '무반응').
-        # 연속 무반응 시 잠시 F6 우선으로 시작하고, 주기적으로 F5 재확인.
-        if self._first_fail >= 3:
-            self._f5_skip = 6      # 6턴간 F6 우선
-            self._first_fail = 0
-            log("주 키 연속 무반응 — 보조(F6) 우선 전환, 주기적 F5 재확인")
-        if self._f5_skip > 0:
-            self._f5_skip -= 1
-            self._first_key, second = second, self._first_key
+        # 사용자 지시(2026-09-16): 무조건 F5부터 — 매 턴 F5 우선, 무반응인
+        # 그 턴만 F6 폴백. F5 재고가 있으면 항상 F5가 먼저 발사된다.
         gained, hp_after = self._try_key(window, self._first_key, hp)
         if gained:
             self._first_fail = 0
