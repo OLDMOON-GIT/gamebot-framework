@@ -20,6 +20,7 @@ from user_gate import user_active
 
 RUNTIME = Path("/tmp/linc-bot-linux")
 STOP = RUNTIME / "stop"
+NOMOUSE = RUNTIME / "nomouse"   # 마우스 클릭 전면 금지(사용자 지시 2026-09-15)
 NEAR_RADIUS = 260            # 한 칸~두 칸: 캐릭터 중심 이 반경 몹만
 EXT_HP_URL = "http://127.0.0.1:17311/hp?scale=4"
 
@@ -222,11 +223,14 @@ def main():
         log(f"HUD 확보: HP {base[0]}/{base[1]} — 사냥 시작")
 
     def read_hp_source(window):
-        """HP 소스: 확장 네이티브 우선, CDP hp_read 폴백(BTS-1033471).
-        최종값은 hp_guard(경로 통합 급변 가드)를 통과한다."""
-        ratio = ext_hp.read()
+        """HP 소스. 2026-09-15 15:0x: video 소스 HUD 밴드(y720)가 재접속
+        후 레이아웃 어긋남(확장 스트립 게이지 폭 281px = 트랙 272 초과,
+        ratio 0.58 vs CDP 화면 판독 0.985) — video 소스 값(ratio/숫자)을
+        재실측 전까지 끊고 검증된 CDP 화면 판독(동적 rect+가드)을 우선
+        한다. ext 경로는 CDP 실패 시 폴백."""
+        ratio = hp_read(window.capture())
         if ratio is None:
-            ratio = hp_read(window.capture())
+            ratio = ext_hp.read()
         return hp_guard(ratio)
 
     log("한 칸 거리 사냥 시작(이동 없음, 근접 몹만)")
@@ -253,6 +257,17 @@ def main():
                 time.sleep(2.5)
                 continue
             hp_unread = 0
+            if NOMOUSE.exists():
+                # 마우스 금지 모드(사용자 지시): 몹 클릭·이탈 클릭 모두
+                # 하지 않는다. 물약(F5 키)은 마우스가 아니므로 계속
+                # 담당한다(2026-09-15 사고: 이 브랜치에서 potion.check를
+                # 건너뛰어 HP가 0.58까지 떨어지는 동안 물약이 끊겼다).
+                result = potion.check(w, hp)
+                if result == EXHAUSTED:
+                    log("물약 재고 소진 — 사냥 중단(사망 방지)")
+                    break
+                time.sleep(2.0)
+                continue
             if hp < 0.45:
                 log(f"HP 위험({hp:.2f}): 이탈 이동")
                 yield_click(w, 620, 400)  # 한 칸 원칙이지만 생존 우선

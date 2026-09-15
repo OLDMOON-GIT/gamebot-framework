@@ -51,6 +51,7 @@ class HpUnreadableTests(unittest.TestCase):
         with patch.object(oh, "CdpWindow", return_value=w), \
                 patch.object(oh, "ExtHpSource", return_value=ext), \
                 patch.object(oh, "calibrate_hud", return_value=(100, 253)), \
+                patch.object(oh, "NOMOUSE", Path("/nonexistent/nomouse")), \
                 patch.object(oh, "PotionKeys", return_value=potion), \
                 patch.object(oh, "hp_read", side_effect=hp_read), \
                 patch.object(oh, "find_character", return_value=(5, 5)), \

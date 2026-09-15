@@ -48,6 +48,27 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         kind = self.path.strip('/').lower()
+        if kind == 'ext-ratio':
+            # 페이지 주입 판독기(2026-09-15): content.js 확장 갱신 전까지
+            # 게임 탭에 CDP로 심은 스크립트가 게이지 폭 판독값을 보낸다.
+            try:
+                n = int(self.headers.get('Content-Length') or 0)
+                payload = json.loads(self.rfile.read(n) or b'{}')
+                ratio = float(payload.get('ratio'))
+                assert 0.0 <= ratio <= 1.0
+            except Exception:
+                self.send_response(400)
+                self._cors()
+                self.end_headers()
+                return
+            with _lock:
+                ent = _latest.setdefault('hud', {})
+                ent['hp_ratio'] = ratio
+                ent['hp_ratio_ts'] = time.time()
+            self.send_response(204)
+            self._cors()
+            self.end_headers()
+            return
         if kind not in ('hud', 'full'):
             self.send_response(404)
             self._cors()
@@ -72,16 +93,23 @@ class _Handler(BaseHTTPRequestHandler):
                 return default
 
         with _lock:
+            prev = _latest.get('hud') or {}
             _latest[kind] = {
                 'ts': time.time(),
                 'data': data,
                 'native_w': _int('X-Native-W', NATIVE_W),
                 'native_h': _int('X-Native-H', NATIVE_H),
                 'origin_y': _int('X-Origin-Y', HUD_ORIGIN_Y),
-                # 확장 안 게이지 판독값(BTS-1033474). content.js가 스트립
-                # 채움 폭으로 계산해 보낸다 — 숫자 OCR의 자릿수 오독
-                # ('223'→'23')이 원천 없다. 없으면 None(파이썬 OCR 폴백).
-                'hp_ratio': _float('X-HP-Ratio', None),
+                # 확장 안 게이지 판독값(BTS-1033474). content.js(또는 페이지
+                # 주입 판독기 /ext-ratio)가 게이지 채움 폭으로 계산해 보낸다
+                # — 숫자 OCR의 자릿수 오독('223'→'23')이 원천 없다. 헤더가
+                # 없는 프레임은 기존값을 유지해 주입 판독값을 덮어쓰지 않는다.
+                'hp_ratio': (_float('X-HP-Ratio', None)
+                             if self.headers.get('X-HP-Ratio')
+                             else prev.get('hp_ratio')),
+                'hp_ratio_ts': (time.time()
+                                if self.headers.get('X-HP-Ratio')
+                                else prev.get('hp_ratio_ts', 0)),
             }
         self.send_response(204)
         self._cors()
@@ -223,7 +251,8 @@ def read_ext_ratio(max_age=0.7):
         ent = _latest.get('hud')
         if not ent or ent.get('hp_ratio') is None:
             return None
-        if max_age is not None and (time.time() - ent['ts']) > max_age:
+        age = time.time() - ent.get('hp_ratio_ts', ent.get('ts', 0))
+        if max_age is not None and age > max_age:
             return None
         ratio = ent['hp_ratio']
     return float(min(1.0, max(0.0, ratio)))
