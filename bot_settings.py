@@ -15,11 +15,15 @@ PATH = "/tmp/linc-bot-linux/settings.json"
 # 그 이상으로" / "물약이 아예없거나 20퍼미만의 경우 f8(귀환주문서)" /
 # f6이 물약. 이 값들이 확장 UI 폼의 초기 표시값이기도 하다.
 DEFAULTS = {
-    "potion_key": "F6",        # 물약 키(사용자 실측: F6=물약)
+    "red_key": "",             # 빨간 물약(대회복) 키 — 위기 구간용
+    "orange_key": "F6",        # 주홍 물약(보통) — 기본 물약(사용자 실측 F6)
+    "green_key": "",           # 초록 물약(소회복) — 가벼운 구간용
     "potion_key_alt": "F5",    # 보조(무반응 폴백)
     "return_key": "F8",        # 귀환 주문서
     "potion_start_pct": 80,    # 이 % 밑이면 물약 시작
     "recover_to_pct": 80,      # 이 % 이상까지 채운다(연속 투입 목표)
+    "red_pct": 45,             # 이 % 밑이면 빨간 물약(red_key 지정 시)
+    "green_pct": 0,            # 이 % 이상이면 초록 물약(green_key 지정 시)
     "danger_pct": 20,          # 이 % 밑이면 F8 귀환
     "chain_max": 6,            # 한 턴 연속 투입 상한(위기시 +2)
     "enabled": True,           # 봇 물약 on/off

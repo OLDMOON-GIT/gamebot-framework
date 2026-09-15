@@ -34,7 +34,7 @@ CHAIN_MAX = 4          # 한 턴 연속 투입 상한(피가 많이 딸리면 �
 EMERGENCY_RETURN_KEY = "F8"
 EMERGENCY_HP = 0.20
 CHAIN_GAP = 0.4        # 연속 투입 간격 — 게임 물약 쿨은 짧다(실측 연속 발동 확인)
-GAIN_MIN = 0.04       # 재판독에서 '올랐다'로 인정할 최소 상승 폭
+GAIN_MIN = 0.02       # 재판독 상승 인정 최소폭 — 소회복 물약도 인정(2026-09-15)
 DRY_LIMIT = 3         # 연속 무반응 허용 턴 수(넘으면 재고 소진)
 
 USED = "used"          # 물약을 사용한 턴
@@ -120,7 +120,15 @@ class PotionKeys:
         호출해도 가볍다."""
         s = load_settings()
         self.threshold = s["potion_start_pct"] / 100.0
-        self._first_key = s["potion_key"]
+        # 물약 등급(사용자 지시 '빨갱이 주홍이 등등에 따라 다르게'):
+        # 위기(red_pct 밑)는 빨간 물약, 가벼운 구간은 초록(지정 시),
+        # 기본은 주홍. 미지정 키는 건너뛴다.
+        self._red_key = s.get("red_key") or ""
+        self._orange_key = s.get("orange_key") or s["potion_key"]
+        self._green_key = s.get("green_key") or ""
+        self._red_pct = s.get("red_pct", 45) / 100.0
+        self._green_pct = s.get("green_pct", 0) / 100.0
+        self._first_key = self._orange_key
         self._alt_key = s["potion_key_alt"]
         self._return_key = s["return_key"]
         self._chain_max = s["chain_max"]
@@ -179,6 +187,13 @@ class PotionKeys:
                 log(f"투입 직전 회복 확인(HP {recheck:.2f}) — 취소")
                 return SKIP
 
+        if hp < self._red_pct and self._red_key:
+            self._first_key = self._red_key       # 위기: 빨간 물약
+        elif self._green_key and self._green_pct and \
+                hp >= self._green_pct:
+            self._first_key = self._green_key     # 가벼움: 초록 물약
+        else:
+            self._first_key = self._orange_key    # 기본: 주홍
         second = self._alt_key
         gained, hp_after = self._try_key(window, self._first_key, hp)
         if not gained:
