@@ -44,7 +44,10 @@ class PotionKeys:
         self.threshold = threshold
         self._last_used = 0.0
         self._low_since = None    # 임계 미만 관측 시작 시각(2프레임 확인)
-        self._first_key = "F5"    # 먼저 누를 키(마지막으로 성공한 키)
+        # 2026-09-14 실측: F6=물약(1011→1010 확인), F5=빈 슬롯. 초기값
+        # F5는 사용자 수동 물약/재생 상승분을 'F5 성공'으로 오판해 학습을
+        # 오염시켰다(2026-09-15 사고) — 검증된 F6을 우선 키로 둔다.
+        self._first_key = "F6"
         self._dry = 0             # 연속 무반응 턴 수
         # HP 소스 주입(BTS-1033471): onestep_hunt가 확장 네이티브 판독
         # (ext_vision /hp) 우선 경로를 넘긴다. None이면 기존 CDP 판독.

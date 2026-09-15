@@ -48,11 +48,12 @@ class TestPotionKeys(unittest.TestCase):
         self.assertEqual(p.check(self.w, 0.81), SKIP)
         self.w.key.assert_not_called()
 
-    def test_임계_미만_2프레임이면_F5를_누른다(self):
-        # 경계: 0.79 < 0.80 → 사용. 재판독 상승(0.95) → F5만 누른다.
+    def test_임계_미만_2프레임이면_F6을_누른다(self):
+        # 경계: 0.79 < 0.80 → 사용. 재판독 상승(0.95) → F6만 누른다.
+        # F6 우선(2026-09-14 실측: F6=물약, F5=빈 슬롯).
         p = self._potion(lambda img: 0.95)
         self.assertEqual(self._armed(p, 0.79), USED)
-        self.assertEqual(self._presses(), ["F5"])
+        self.assertEqual(self._presses(), ["F6"])
 
     def test_한_프레임만의_저HP로는_누르지_않는다(self):
         # OCR 오독 한 프레임(0.79)이 F5를 발사하면 안 된다.
@@ -63,11 +64,11 @@ class TestPotionKeys(unittest.TestCase):
         self.assertEqual(p.check(self.w, 0.95), SKIP)
         self.w.key.assert_not_called()
 
-    def test_F5_무반응이면_F6으로_폴백한다(self):
-        # 재판독이 계속 낮으면(반응 없음) F5→F6 순서로 누른다.
+    def test_F6_무반응이면_F5로_폴백한다(self):
+        # 재판독이 계속 낮으면(반응 없음) F6→F5 순서로 누른다.
         p = self._potion(lambda img: 0.79)
         self.assertEqual(self._armed(p, 0.79), USED)
-        self.assertEqual(self._presses(), ["F5", "F6"])
+        self.assertEqual(self._presses(), ["F6", "F5"])
 
     def test_쿨다운_중에는_재누름이_막힌다(self):
         p = self._potion(lambda img: 0.95)
@@ -95,13 +96,13 @@ class TestPotionKeys(unittest.TestCase):
         # 매턴 F5+F6 두 번씩: 3턴 × 2 = 6
         self.assertEqual(self.w.key.call_count, 6)
 
-    def test_F6_성공_후에는_F6을_먼저_누른다(self):
-        # F5 무반응 → F6 반응: 다음 사용부터 F6 우선(빈 F5 헛누름 제거).
-        reread = iter([0.79, 0.95])  # F5 재판독 무반응, F6 재판독 상승
+    def test_F5_성공_후에는_F5를_먼저_누른다(self):
+        # F6 무반응 → F5 반응: 다음 사용부터 F5 우선(학습).
+        reread = iter([0.79, 0.95])  # F6 재판독 무반응, F5 재판독 상승
         p = self._potion(lambda img: next(reread))
         self.assertEqual(self._armed(p, 0.79), USED)
-        self.assertEqual(self._presses(), ["F5", "F6"])
-        self.assertEqual(p._first_key, "F6")
+        self.assertEqual(self._presses(), ["F6", "F5"])
+        self.assertEqual(p._first_key, "F5")
 
         p._last_used -= COOLDOWN + 0.1
         self.assertEqual(p.check(self.w, 0.70), SKIP)  # 1프레임 기록
@@ -109,7 +110,7 @@ class TestPotionKeys(unittest.TestCase):
         reread2 = iter([0.95])
         with patch.object(potion_keys, "hp_read", lambda img: next(reread2)):
             self.assertEqual(p.check(self.w, 0.70), USED)
-        self.assertEqual(self._presses(), ["F5", "F6", "F6"])
+        self.assertEqual(self._presses(), ["F6", "F5", "F5"])
 
 
 if __name__ == "__main__":
