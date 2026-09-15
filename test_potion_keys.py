@@ -57,7 +57,7 @@ class TestPotionKeys(unittest.TestCase):
         # 경계: 0.79 < 0.80 → 사용. 재판독 상승(0.95) → F6만 누른다.
         # F6 우선(2026-09-14 실측: F6=물약, F5=빈 슬롯).
         p = self._potion(lambda img: 0.95)
-        p._probe_idx = 99   # 감별 소진(위기 자동 감별은 별도 실측 검증)
+        p._probe_idx = 99
         self.assertEqual(self._armed(p, 0.79), USED)
         self.assertEqual(self._presses(), ["F5"])
 
@@ -78,7 +78,7 @@ class TestPotionKeys(unittest.TestCase):
 
     def test_쿨다운_중에는_재누름이_막힌다(self):
         p = self._potion(lambda img: 0.95)
-        p._probe_idx = 99   # 감별 소진(위기 자동 감별은 별도 실측 검증)
+        p._probe_idx = 99
         self.assertEqual(self._armed(p, 0.79), USED)
         before = self.w.key.call_count
         # 즉시 다시 저HP가 2프레임 연속 와도 COOLDOWN(3초) 내에는 안 누른다.
@@ -109,6 +109,7 @@ class TestPotionKeys(unittest.TestCase):
         # 임계 밑이면 CHAIN_GAP 대기 후 재투입 — 임계 회복 시까지(상한 4회).
         reread = iter([0.60, 0.86])  # 1회차 +0.2, 2회차 후 임계 회복
         p = self._potion(lambda img: next(reread))
+        p._probe_idx = 99
         self.assertEqual(self._armed(p, 0.40), USED)
         self.assertEqual(self._presses(), ["F5", "F5"])
 
