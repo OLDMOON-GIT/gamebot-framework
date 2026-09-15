@@ -71,10 +71,10 @@ def main():
             while user_active() and waited < 6 and not STOP.exists():
                 time.sleep(1.0)
                 waited += 1
-            before = pickup_count(img, w)
+            before = pickup_count(img)
             w.key("F4", w.geometry())
             time.sleep(1.2)
-            gain = max(0, pickup_count(w.capture(), w) - before)
+            gain = max(0, pickup_count(w.capture()) - before)
             if gain:
                 picked += gain
                 log(f"F4 줍기 획득 {gain} (누적 {picked})")
