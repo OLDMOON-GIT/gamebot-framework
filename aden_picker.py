@@ -11,6 +11,8 @@ import numpy as np
 
 from cdp_window import CdpWindow, EXT_PORT
 from chat_watch import exp_count, pickup_count
+from item_labels import PICK_RECT, detect_labels, read_label_names
+from item_tiers import tier_of
 from linux_vision import find_character, red_name_candidates
 from user_gate import user_active
 
@@ -69,10 +71,18 @@ def main():
             if near_mob and not killed:
                 time.sleep(0.5)
                 continue
+            # 스마트 줍기: 칼질이 끝나면 드랍 이름표가 보인다(사용자 지시
+            # 2026-09-16) — 이름을 읽어 등급 판별, 저급 잡템은 줍지 않는다.
+            labels = read_label_names(img, detect_labels(img, PICK_RECT))
+            lows = [l for l in labels if tier_of(l.name) == "low"]
+            if lows and len(lows) == len(labels) and not detect_boxes(img):
+                time.sleep(2.5)   # 저급만 있음 — 무시하고 대기
+                continue
             boxes = detect_boxes(img)
             near = [b for b in boxes
                     if (b[0] - cx) ** 2 + (b[1] - cy) ** 2 <= NEAR_BOX_RADIUS ** 2]
-            if not near:
+            good_labels = [l for l in labels if tier_of(l.name) != "low"]
+            if not near and not good_labels:
                 time.sleep(2.0)
                 continue
             waited = 0
