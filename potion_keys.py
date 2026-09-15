@@ -82,15 +82,18 @@ class PotionKeys:
     def _apply_key_setting(self):
         """UI 설정(물약 슬롯)에서 주 물약 키만 반영 — 계산 로직은 스테이블
         유지(2026-09-15 사용자: UI는 아까 것, 동작은 안정)."""
-        if getattr(self, "_key_applied", False):
-            return   # 초기 1회만 — 이후 학습(_first_key) 보존
-        self._key_applied = True
+        # 매 체크 로드(bot_settings 5초 캐시 — 가볍다). 주 키는 학습
+        # 보존(초기 1회), 위기 키/위험 임계는 세팅값을 매번 따른다.
         try:
             from bot_settings import load as _ls
-            main = _ls().get("main_potion") or {}
-            k = main.get("key")
-            if k:
-                self._first_key = k
+            s = _ls()
+            if not getattr(self, "_key_applied", False):
+                self._key_applied = True
+                k = (s.get("main_potion") or {}).get("key")
+                if k:
+                    self._first_key = k
+            self._crisis_key = (s.get("crisis_potion") or {}).get("key") or ""
+            self._red_pct = s.get("red_pct", 45) / 100.0
         except Exception:
             pass
 
