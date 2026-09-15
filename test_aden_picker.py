@@ -22,6 +22,8 @@ class F4PickupTests(unittest.TestCase):
         with patch.object(ap, "CdpWindow", return_value=w), \
                 patch.object(ap, "PotionKeys", return_value=potion), \
                 patch.object(ap, "hp_read", return_value=0.95), \
+                patch.object(ap, "find_character", return_value=(500, 700)), \
+                patch.object(ap, "red_name_candidates", return_value=[]), \
                 patch.object(ap, "detect_labels", side_effect=lambda *a: next(labels)), \
                 patch.object(ap, "pickup_count", side_effect=lambda img: next(gains)), \
                 patch.object(ap, "user_active", return_value=False), \
@@ -30,6 +32,26 @@ class F4PickupTests(unittest.TestCase):
                 patch.object(ap, "log"):
             ap.main()
         return w
+
+    def test_근처_몹있으면_전투중_줍기_보류(self):
+        # 사용자 지시: 몬스터 사냥 중이 아니라 사냥 없을 때 주워라.
+        # 캐릭터 (500,700) 반경 260px 안에 몹 (600,700) → 접적: F4 안 누름.
+        w = MagicMock()
+        w.active.return_value = True
+        w.capture.return_value = MagicMock()
+        stop = MagicMock()
+        stop.exists.side_effect = [False] * 3 + [True]
+        with patch.object(ap, "CdpWindow", return_value=w), \
+                patch.object(ap, "PotionKeys", return_value=MagicMock(check=MagicMock(return_value=None))), \
+                patch.object(ap, "hp_read", return_value=0.95), \
+                patch.object(ap, "find_character", return_value=(500, 700)), \
+                patch.object(ap, "red_name_candidates", return_value=[(600, 700, 99, None)]), \
+                patch.object(ap, "detect_labels", return_value=[MagicMock()]), \
+                patch.object(ap.time, "sleep"), \
+                patch.object(ap, "STOP", stop), \
+                patch.object(ap, "log"):
+            ap.main()
+        w.key.assert_not_called()
 
     def test_드랍있고_획득증가면_F4누르고_성공(self):
         w = self._run(

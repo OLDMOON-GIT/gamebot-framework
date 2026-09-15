@@ -12,12 +12,13 @@ from pathlib import Path
 from cdp_window import CdpWindow, EXT_PORT
 from chat_watch import pickup_count
 from item_labels import PICK_RECT, detect_labels
-from linux_vision import hp_read
+from linux_vision import find_character, hp_read, red_name_candidates
 from potion_keys import EXHAUSTED, USED, PotionKeys
 from user_gate import user_active
 
 RUNTIME = Path("/tmp/linc-bot-linux")
 STOP = RUNTIME / "stop"
+NEAR_MOB_RADIUS = 260  # 접적 판정 반경(px) — onestep와 동일 기준
 RETRY_GAP = 3.0        # 줍기 실패 후 재시도 간격(초)
 FAIL_LIMIT = 3          # 연속 실패 상한 — 넘으면 긴 대기(드랍이 줍을 수
 LONG_WAIT = 12.0        # 없는 상태일 수 있다: 멀리/이미 꽉 참 등)
@@ -48,6 +49,20 @@ def main():
             if result == USED:
                 time.sleep(0.7)
                 continue
+
+            # 사용자 지시(2026-09-15): '몬스터랑 사냥중일때말고 사냥이
+            # 없을때 주서라' — 캐릭터 근처 몹(빨간 이름표)이 있으면 접적
+            # 상태로 보고 줍기를 보류한다(전투 흐름 방해 차단).
+            char = find_character(img)
+            if char is not None:
+                cx, cy = char[:2]
+                near_mob = any(
+                    (x - cx) ** 2 + (y - cy) ** 2 <= NEAR_MOB_RADIUS ** 2
+                    for x, y, _a, _r in red_name_candidates(img))
+                if near_mob:
+                    fails = 0
+                    time.sleep(1.0)
+                    continue
 
             labels = detect_labels(img, PICK_RECT)
             if not labels:
