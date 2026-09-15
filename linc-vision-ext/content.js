@@ -404,12 +404,13 @@
     } catch (e) { $('lb-msg').textContent = '저장 실패'; }
   };
   function anchorToGame() {
+    // 사용자 지시(2026-09-15): '게임실행밑으로' — 게임 실행(비디오)
+    // 아래쪽에 배치. left=게임 화면 시작 x, bottom=브라우저 맨밑.
     const v = document.querySelector('video');
     const p = document.getElementById('linc-bot-hud');
-    if (!v || !p) return;
-    const r = v.getBoundingClientRect();
-    p.style.left = Math.max(0, Math.round(r.left)) + 'px';
-    p.style.bottom = Math.max(0, Math.round(innerHeight - r.bottom)) + 'px';
+    if (!p) return;
+    p.style.left = (v ? Math.max(0, Math.round(v.getBoundingClientRect().left)) : 0) + 'px';
+    p.style.bottom = '0px';
   }
   async function poll() {
     anchorToGame();
