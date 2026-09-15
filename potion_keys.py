@@ -94,6 +94,7 @@ class PotionKeys:
                     self._first_key = k
             self._crisis_key = (s.get("crisis_potion") or {}).get("key") or ""
             self._red_pct = s.get("red_pct", 45) / 100.0
+            self._alt_key = s.get("potion_key_alt") or "F6"
         except Exception:
             pass
 
