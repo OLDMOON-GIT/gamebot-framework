@@ -325,7 +325,7 @@
 </div>`;
   document.body.appendChild(panel);
   const $ = id => document.getElementById(id);
-  const KINDS = {'초록':6,'맑은':8,'주홍':12,'붉은':18,'진홍':24};
+  const KINDS = {'맑은':8,'주홍':12,'빨간':18,'진한빨간':24};  // 초록=속도물약(HP 0) 제외
   function fillKinds(id, healId) {
     const el = $(id); el.innerHTML = '<option value="">-</option>' +
       Object.keys(KINDS).map(k => `<option value="${k}">${k}</option>`).join('');
