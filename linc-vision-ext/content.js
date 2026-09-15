@@ -416,7 +416,9 @@
           : hp < 0.8 ? 'linear-gradient(90deg,#f5b431,#ffd76e)'
           : 'linear-gradient(90deg,#37d67a,#8ff5b3)';
         window.__lbLast = hp;
-        $('lb-txt').textContent = 'HP ' + Math.round(hp * 100) + '%';
+        let detail = '';
+        if (r.bot && r.bot.hp && r.bot.hp_max) detail = ' (' + r.bot.hp + '/' + r.bot.hp_max + ')';
+        $('lb-txt').textContent = 'HP ' + Math.round(hp * 100) + '%' + detail;
       }
       $('lb-sub').textContent = r.bot ? ('사냥 ' + (r.bot.kills || 0) + '회 · 봇 판독') : '봇 대기 중';
     } catch (e) { $('lb-sub').textContent = '수신 없음'; }
