@@ -406,8 +406,10 @@
   async function poll() {
     try {
       const r = await (await fetch(S + '/hp?scale=4')).json();
-      let hp = (r.hp != null && r.hp_max && r.hp > 0) ? r.hp / r.hp_max :
-               (r.bot && r.bot.ratio != null) ? r.bot.ratio :
+      // 봇(CDP 정밀 판독+가드) 우선 — ext 즉시값은 저폭가 오독 사례
+      // (실제 92%를 74%로 표시, 2026-09-15)가 있어 폴백으로만 쓴다.
+      let hp = (r.bot && r.bot.ratio != null) ? r.bot.ratio :
+               (r.hp != null && r.hp_max && r.hp > 3 && r.hp / r.hp_max > 0.15) ? r.hp / r.hp_max :
                (r.ratio != null && r.ratio !== false) ? r.ratio : null;
       if (hp != null && (hp < 0.15 || (window.__lbLast != null && window.__lbLast > 0.5 && hp < window.__lbLast - 0.4))) hp = null;  // 저값/급낙 오독 — 이전 표시 유지
       if (hp != null) {
