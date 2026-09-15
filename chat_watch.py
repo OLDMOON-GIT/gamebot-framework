@@ -22,7 +22,7 @@ import numpy as np
 # 기본 채팅 영역. 구값 (645,1090,1495,1270)은 실제 채팅 위치와 완전히 어긋나
 # (실측 1140,900~1700,1020) 빈 영역만 OCR 해 획득 판정이 늘 0이었다.
 # game_area.chat_rect(win)로 런타임 계산하는 것이 정확하고, 아래는 폴백이다.
-CHAT_RECT = (1141, 900, 1699, 1019)
+CHAT_RECT = (663, 1069, 1535, 1291)   # 2026-09-15 실측(런타임 계산 경로 대신)
 
 # OCR 전처리: 채팅 글씨는 어두운 배경 위 밝은 글씨라 반전 후 이진화한다.
 _OCR_THRESH = 130
@@ -44,9 +44,8 @@ def _preprocess(img: np.ndarray) -> np.ndarray:
                       interpolation=cv2.INTER_CUBIC)
 
 
-def read_chat(img: np.ndarray) -> str:
-    """채팅 영역 OCR 결과 원문을 돌려준다."""
-    prepped = _preprocess(img)
+def read_chat(img: np.ndarray, win=None) -> str:
+    prepped = _preprocess(img, win)
     ok, buf = cv2.imencode(".png", prepped)
     if not ok:
         return ""
@@ -66,7 +65,7 @@ def pickup_count(img: np.ndarray, win=None) -> int:
     절대값 자체는 의미가 없다(채팅이 스크롤되면 줄어든다).
     클릭 전후로 호출해 **증가했을 때만** 줍기 성공으로 판정할 것.
     """
-    text = read_chat(img)
+    text = read_chat(img, win)
     return sum(1 for line in text.splitlines() if PICKUP_KEYWORD in line)
 
 
