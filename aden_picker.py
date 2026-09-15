@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from cdp_window import CdpWindow, EXT_PORT
-from chat_watch import pickup_count
+from chat_watch import exp_count, pickup_count
 from item_labels import PICK_RECT, detect_labels, read_label_names
 from item_tiers import tier_of
 from linux_vision import find_character, red_name_candidates
@@ -36,7 +36,10 @@ def main():
     # 함께 누르며 게임 쿨다운 충돌로 양쪽 다 무반응 → HP 0.51 하락).
     picked = 0
     fails = 0
-    log("F4 연속 줍기 시작(1회 1줍기 — 실측: 하나만 줍고 멈춤)")
+    last_exp = None       # 마지막 '경험치' 라인 수(내 몹 처치 신호)
+    own_until = 0.0       # 이 시각까지의 드랍만 내 것으로 본다
+    OWN_WINDOW = 8.0      # 몹 처치 후 내 드랍 판정 창(초)
+    log("F4 줍기 시작(내 몹 드랍만 — 경험치 신호 후 창 내 드랍, 남의 것 무시)")
     while not STOP.exists():
         try:
             if not w.active():
@@ -62,7 +65,23 @@ def main():
                 time.sleep(1.0)
                 continue
 
+            # 남의 드랍 차단(사용자 지시 2026-09-15 '남에껀 주스면 안된다'):
+            # 채팅 '경험치' 증가 = 내가 몹을 처치 → 이후 OWN_WINDOW 초 내
+            # 드랍만 줍는다. 그 외 드랍은 남의 것일 수 있어 무시.
+            exp_now = exp_count(img, w)
+            if last_exp is not None and exp_now > last_exp:
+                own_until = time.time() + OWN_WINDOW
+                log("몹 처치 확인(경험치) — 내 드랍 줍기 창 개방")
+            last_exp = exp_now
+
             labels = read_label_names(img, detect_labels(img, PICK_RECT))
+            near_own = any(
+                (l.cx - cx) ** 2 + (l.bottom - cy) ** 2 <= 120 ** 2
+                for l in labels) if char else False
+            if labels and time.time() > own_until and not near_own:
+                fails = 0
+                time.sleep(2.0)   # 남의 드랍 가능성(처치 창 밖+발밑 아님)
+                continue
             # 등급 판별(사용자 지시 '고급템과 저급템 판별'): 저급 잡템은
             # 줍지 않는다. unknown은 줍는다(놓침 손해가 더 크다).
             good = [l for l in labels if tier_of(l.name) != "low"]
@@ -88,9 +107,20 @@ def main():
             while user_active() and waited < 6 and not STOP.exists():
                 time.sleep(1.0)
                 waited += 1
+            before_n = len(labels)
             w.key("F4", w.geometry())
             time.sleep(1.0)
-            gain = max(0, pickup_count(w.capture(), w) - before)
+            img_after = w.capture()
+            gain = max(0, pickup_count(img_after, w) - before)
+            # 보조 성공 판정(2026-09-15 실측: 채팅 획득 OCR이 0이어도
+            # 드랍 라벨이 사라지면 줍기 성공): 캐릭터 위치가 거의 동일할
+            # 때만(이동 없음=화면 스크롤 없음) 라벨 감소를 인정한다.
+            c2 = find_character(img_after)
+            if not gain and c2 and char and \
+                    abs(c2[0]-cx) <= 20 and abs(c2[1]-cy) <= 20:
+                after_n = len(detect_labels(img_after, PICK_RECT))
+                if after_n < before_n:
+                    gain = before_n - after_n
             if gain:
                 picked += gain
                 fails = 0

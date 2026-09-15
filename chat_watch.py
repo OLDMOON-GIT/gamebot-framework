@@ -30,6 +30,7 @@ _OCR_SCALE = 2  # tesseract 는 작은 글씨에 약해 2배 확대
 
 # 줍기 성공 메시지 키워드. 게임 문구는 '아데나 (68) 을(를) 획득하였습니다.' 형태.
 PICKUP_KEYWORD = "획득"
+EXP_KEYWORD = "경험치"   # 내가 몹을 잡았다는 신호(남의 드랍 구분용)
 
 
 def _rect(win=None):
@@ -91,3 +92,9 @@ if __name__ == "__main__":
     print("--- 채팅 OCR ---")
     print(read_chat(frame))
     print(f"--- 획득 라인 수: {pickup_count(frame)} ---")
+
+
+def exp_count(img: np.ndarray, win=None) -> int:
+    """채팅창에 보이는 '경험치' 라인 수 — 증가 = 내가 몹을 처치했다."""
+    text = read_chat(img, win)
+    return sum(1 for line in text.splitlines() if EXP_KEYWORD in line)

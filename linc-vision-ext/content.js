@@ -254,12 +254,12 @@
     if (document.getElementById('linc-bot-hud')) return;
     const panel = document.createElement('div');
     panel.id = 'linc-bot-hud';
-    panel.style.cssText = 'position:fixed;left:12px;top:12px;z-index:2147483647;pointer-events:none;background:rgba(10,12,18,0.75);border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:10px 14px;color:#eee;font:12px/1.5 monospace;min-width:160px;box-shadow:0 2px 12px rgba(0,0,0,.5)';
-    panel.innerHTML = '<div style="font-weight:bold;color:#7ec8ff;letter-spacing:1px;margin-bottom:5px">LINC BOT</div>'
-      + '<div style="width:160px;height:10px;background:#1a1a1a;border-radius:5px;overflow:hidden;border:1px solid #000">'
+    panel.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:2147483647;pointer-events:none;background:rgba(10,12,18,0.75);border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:16px 22px;color:#eee;font:20px/1.6 monospace;min-width:300px;box-shadow:0 2px 12px rgba(0,0,0,.5)';
+    panel.innerHTML = '<div style="font-weight:bold;color:#7ec8ff;letter-spacing:2px;margin-bottom:8px">LINC BOT</div>'
+      + '<div style="width:280px;height:20px;background:#1a1a1a;border-radius:9px;overflow:hidden;border:1px solid #000">'
       + '<div id="lb-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#3ddc84,#a5ffb0);transition:width .3s"></div></div>'
-      + '<div id="lb-txt" style="margin-top:5px">HP --%</div>'
-      + '<div id="lb-sub" style="color:#9aa;font-size:11px">초기화...</div>';
+      + '<div id="lb-txt" style="margin-top:8px">HP --%</div>'
+      + '<div id="lb-sub" style="color:#9aa;font-size:17px">초기화...</div>';
     document.body.appendChild(panel);
     const fill = document.getElementById('lb-fill');
     const txt = document.getElementById('lb-txt');
