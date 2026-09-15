@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 
 from cdp_window import CdpWindow, EXT_PORT
-from chat_watch import pickup_count
+from chat_watch import exp_count, pickup_count
 from linux_vision import find_character, red_name_candidates
 from user_gate import user_active
 
@@ -43,6 +43,7 @@ def main():
     STOP.unlink(missing_ok=True)
     w = CdpWindow(port=EXT_PORT)
     picked = 0
+    last_exp = None
     log("스마트 줍기 시작(박스 감지 · 사냥 후 반경 내 F4)")
     while not STOP.exists():
         try:
@@ -58,8 +59,15 @@ def main():
             # 접적(근처 몹) 중엔 줍지 않는다 — 사냥이 끝난 후에만.
             near_mob = any((x - cx) ** 2 + (y - cy) ** 2 <= NEAR_MOB_RADIUS ** 2
                            for x, y, _a, _r in red_name_candidates(img))
-            if near_mob:
-                time.sleep(1.0)
+            # 몹 처치(경험치 증가) 직후 즉시 F4(사용자 지시 2026-09-16
+            # '몬스터를 죽이면 바로 f4하자') — 접적 중이라도 처치 순간 줍는다.
+            exp_now = exp_count(img)
+            killed = (last_exp is not None and exp_now > last_exp)
+            if killed and near:
+                log("몹 처치 확인 — 즉시 줍기")
+            last_exp = exp_now
+            if near_mob and not killed:
+                time.sleep(0.5)
                 continue
             boxes = detect_boxes(img)
             near = [b for b in boxes
