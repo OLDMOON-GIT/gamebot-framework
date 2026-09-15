@@ -258,41 +258,35 @@
   const css = document.createElement('style');
   css.textContent = `
 #linc-bot-hud *{box-sizing:border-box}
-#linc-bot-hud{position:fixed;left:0;bottom:0;z-index:2147483647;
-  background:linear-gradient(175deg,#16294f 0%,#0b1730 55%,#081026 100%);
-  border:2px solid #8a6a2f;border-radius:0 10px 0 0;padding:14px 18px 16px 26px;
-  color:#e8e0c8;font:14px/1.55 'Gulim','Malgun Gothic',sans-serif;
-  min-width:340px;box-shadow:0 0 0 1px #3a2c10,0 10px 34px rgba(0,0,0,.75),inset 0 0 22px rgba(0,10,40,.55);user-select:none}
-#linc-bot-hud::before{content:'';position:absolute;left:6px;top:8px;bottom:8px;width:5px;
-  background:linear-gradient(#e0a94f,#8a6a2f 60%,#c89b4a);border-radius:2px}
+#linc-bot-hud{position:fixed;left:0;bottom:0;z-index:2147483647;background:linear-gradient(160deg,#181d28ee,#0c0f16ee);border:1px solid #3a465c;border-radius:0 10px 0 0;padding:14px 18px 16px 20px;color:#e8ecf4;font:15px/1.5 'Segoe UI',sans-serif;min-width:340px;box-shadow:0 8px 32px rgba(0,0,0,.65);user-select:none}
 #lb-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-#lb-title{font-weight:700;font-size:18px;letter-spacing:3px;color:#f0c96a;text-shadow:0 1px 2px #000}
-#lb-gear{margin-left:auto;width:32px;height:32px;border-radius:3px;border:1px solid #8a6a2f;background:#101d3a;color:#e0a94f;font-size:17px;cursor:pointer;transition:.15s}
-#lb-gear:hover{background:#1c2f5e;color:#ffe9a8}
-#lb-bar{width:100%;height:18px;background:#060d1e;border-radius:2px;overflow:hidden;border:1px solid #3a2c10}
+#lb-title{font-weight:700;font-size:19px;letter-spacing:2px;color:#7ec8ff}
+#lb-gear{margin-left:auto;width:34px;height:34px;border-radius:9px;border:1px solid #3a465c;background:#232b3a;color:#9fb4d8;font-size:18px;cursor:pointer;transition:.15s}
+#lb-gear:hover{background:#2e3950;color:#fff}
+#lb-bar{width:100%;height:18px;background:#10131c;border-radius:9px;overflow:hidden;border:1px solid #000}
 #lb-fill{height:100%;width:0%;border-radius:9px;background:linear-gradient(90deg,#37d67a,#8ff5b3);transition:width .3s}
 #lb-txt{font-size:24px;font-weight:700;margin-top:6px}
 #lb-sub{color:#8d9cb8;font-size:13px;margin-top:2px}
 #lb-opts{display:none;flex-direction:column;gap:12px;margin-top:12px;padding-top:14px;border-top:1px solid #2c3648}
 #linc-bot-hud.open #lb-opts{display:flex}
-.lb-sec{font-size:12px;font-weight:700;color:#d8b25e;letter-spacing:2px;margin-bottom:-4px;border-bottom:1px solid #3a2c10;padding-bottom:3px}
+.lb-sec{font-size:12px;font-weight:700;color:#7ec8ff;letter-spacing:1px;margin-bottom:-4px}
 .lb-row{display:flex;align-items:center;gap:10px}
 .lb-row label{flex:1;color:#c3cdde;font-size:14px}
 .lb-row .val{min-width:48px;text-align:right;font-weight:700;color:#fff}
-.lb-slider{flex:1.4;appearance:none;height:6px;border-radius:2px;background:#0a142c;border:1px solid #3a2c10;outline:none}
-.lb-slider::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border-radius:2px;background:#e0a94f;border:1px solid #6a5218;cursor:pointer}
+.lb-slider{flex:1.4;appearance:none;height:6px;border-radius:3px;background:#2a3346;outline:none}
+.lb-slider::-webkit-slider-thumb{appearance:none;width:18px;height:18px;border-radius:50%;background:#4da3ff;border:2px solid #fff;cursor:pointer}
 .lb-keys{display:grid;grid-template-columns:repeat(9,1fr);gap:4px}
-.lb-key{padding:6px 0;border-radius:3px;border:1px solid #5a4718;background:#101d3a;color:#cabb8e;font:600 13px monospace;cursor:pointer;text-align:center;transition:.12s}
-.lb-key:hover{background:#1c2f5e;border-color:#c89b4a}
-.lb-key.sel{background:#5a3f12;color:#ffe9a8;border-color:#e0a94f;box-shadow:0 0 7px #c89b4a99}
-.lb-toggle{position:relative;width:52px;height:24px;border-radius:3px;background:#0a142c;border:1px solid #5a4718;cursor:pointer;transition:.2s;flex:none}
-.lb-toggle.on{background:#7a5a18}
+.lb-key{padding:6px 0;border-radius:7px;border:1px solid #3a465c;background:#232b3a;color:#9fb4d8;font:600 13px monospace;cursor:pointer;text-align:center;transition:.12s}
+.lb-key:hover{background:#2e3950}
+.lb-key.sel{background:#2f6fc4;color:#fff;border-color:#7ec8ff;box-shadow:0 0 8px #2f6fc488}
+.lb-toggle{position:relative;width:52px;height:26px;border-radius:13px;background:#2a3346;cursor:pointer;transition:.2s;flex:none}
+.lb-toggle.on{background:#2f9e5b}
 .lb-toggle::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.2s}
 .lb-toggle.on::after{left:29px}
 #lb-stepper{display:flex;align-items:center;gap:8px}
 #lb-stepper button{width:30px;height:30px;border-radius:8px;border:1px solid #3a465c;background:#232b3a;color:#fff;font-size:17px;cursor:pointer}
-#lb-save{margin-top:4px;padding:10px;border:1px solid #e0a94f;border-radius:3px;background:linear-gradient(#3a2c10,#241a06);color:#ffe9a8;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:6px}
-#lb-save:hover{background:linear-gradient(#5a3f12,#3a2c10)}
+#lb-save{margin-top:4px;padding:10px;border:0;border-radius:10px;background:linear-gradient(160deg,#2f6fc4,#2456a0);color:#fff;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:1px}
+#lb-save:hover{filter:brightness(1.12)}
 #lb-msg{text-align:center;font-size:13px;color:#69d98d;min-height:16px}`;
   document.head.appendChild(css);
   const panel = document.createElement('div');
@@ -305,9 +299,9 @@
 <div id="lb-sub">초기화...</div>
 <div id="lb-opts">
   <div class="lb-sec">🧪 물약</div>
-  <div class="lb-row"><label>주 물약</label><select id="st-kind1" style="font-size:13px;padding:2px 6px;background:#101d3a;color:#ffe9a8;border:1px solid #8a6a2f"></select><span class="val" id="v-heal1">+8%</span></div>
+  <div class="lb-row"><label>주 물약</label><select id="st-kind1" style="font-size:13px;padding:2px 6px;background:#232b3a;color:#c3cdde;border:1px solid #3a465c"></select><span class="val" id="v-heal1">+8%</span></div>
   <div class="lb-keys" id="lb-key1"></div>
-  <div class="lb-row" style="margin-top:6px"><label>위기 물약(&lt;45%)</label><select id="st-kind2" style="font-size:13px;padding:2px 6px;background:#101d3a;color:#ffe9a8;border:1px solid #8a6a2f"></select><span class="val" id="v-heal2">-</span></div>
+  <div class="lb-row" style="margin-top:6px"><label>위기 물약(&lt;45%)</label><select id="st-kind2" style="font-size:13px;padding:2px 6px;background:#232b3a;color:#c3cdde;border:1px solid #3a465c"></select><span class="val" id="v-heal2">-</span></div>
   <div class="lb-keys" id="lb-key2"></div>
   <div class="lb-row" style="margin-top:6px"><label>보조 키</label></div>
   <div class="lb-keys" id="lb-key2"></div>
