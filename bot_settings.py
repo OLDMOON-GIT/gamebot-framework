@@ -69,8 +69,13 @@ def load(refresh=5.0):
 
 
 def save(payload):
-    """UI 저장 — 기본값에 병합해 기록. 검증 실패 항목은 무시."""
+    """UI 저장 — 기존 파일 + 기본값 + payload 병합(기존 유지)."""
     data = dict(DEFAULTS)
+    try:
+        with open(PATH) as f:
+            data.update({k: v for k, v in json.load(f).items() if k in DEFAULTS})
+    except (OSError, ValueError):
+        pass
     data.update({k: v for k, v in payload.items() if k in DEFAULTS})
     os.makedirs(os.path.dirname(PATH), exist_ok=True)
     with open(PATH, "w") as f:
