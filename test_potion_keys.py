@@ -108,10 +108,12 @@ class TestPotionKeys(unittest.TestCase):
     def test_연속_투입은_상한이_있다(self):
         # 재판독이 계속 소폭 상승(투입 효과)해도 임계 밑이면 이어가되
         # CHAIN_MAX(4회)까지만. 재판독이 멈추면(게임 쿨다운) 즉시 중단.
-        reread = iter([0.55, 0.60, 0.65, 0.70, 0.75])
+        reread = iter([0.55, 0.60, 0.65, 0.70, 0.75, 0.78, 0.80, 0.80])
         p = self._potion(lambda img: next(reread))
         self.assertEqual(self._armed(p, 0.40), USED)
-        self.assertEqual(len(self._presses()), 4)
+        # 시작 0.40은 위기(사용자 지시 '40퍼 쭉쭉 내려가면 80 이상')라
+        # 상한 CHAIN_MAX+2=6회까지 이어간다.
+        self.assertEqual(len(self._presses()), 6)
 
     def test_F5_성공_후에는_F5를_먼저_누른다(self):
         # F6 무반응 → F5 반응: 다음 사용부터 F5 우선(학습).
