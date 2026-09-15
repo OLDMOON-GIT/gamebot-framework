@@ -1,12 +1,10 @@
-"""아덴/드랍 줍기 전담 — ATS(게임 자동사냥)가 잡은 시체 뒷정리 (2026-09-08).
+"""아덴/드랍 줍기 전담 — F4 줍기 단축키 방식 (BTS-1033502, 2026-09-15).
 
-분업: ATS=몹 사냥, 이 스크립트=바닥 드랍 아이템을 터치로 줍기.
-드랍은 이름 라벨(흰 테두리 + 어두운 글씨)로 표시되므로 item_labels 로 검출한다.
-
-줍기는 2단계다: 아이템 클릭 = 그 자리로 '이동', 도착 후 재클릭 = 실제 줍기.
-성공 판정은 채팅창의 '획득' 메시지(chat_watch)로만 한다.
-라벨이 사라진 것은 근거가 못 된다 — 캐릭터가 이동하면 화면이 스크롤돼
-모든 라벨 좌표가 같이 밀리기 때문에 거짓 성공이 대량으로 잡힌다.
+사용자 지시: 'f4가 단축키'. 드랍 라벨(item_labels)이 보이면 F4 키로
+줍는다 — 마우스 클릭(이동 클릭→재클릭) 전에 없이 nomouse 정책 유지.
+성공 판정은 채팅창 '획득' 메시지(chat_watch)로만 한다. 연속 실패 시
+짧은 대기 후 재시도(토글형 키 연타 방지).
+분업: ATS=몹 사냥, onestep=물약, 이 스크립트=F4 줍기.
 """
 import time
 from pathlib import Path
@@ -14,18 +12,13 @@ from pathlib import Path
 from cdp_window import CdpWindow, EXT_PORT
 from chat_watch import pickup_count
 from item_labels import PICK_RECT, detect_labels
-from linux_vision import hp_read
+from user_gate import user_active
 
 RUNTIME = Path("/tmp/linc-bot-linux")
 STOP = RUNTIME / "stop"
-GRID = 20          # 블랙리스트/대조용 좌표 격자 크기(px)
-BLACKLIST_TTL = 60  # 블랙리스트 유효 시간(초) — 캐릭터가 이동하면 화면 좌표가
-                    # 달라지므로 영구 차단하면 멀쩡한 아이템까지 막힌다.
-
-
-def cell(x, y):
-    """좌표를 격자 셀로 환산(미세한 흔들림 흡수)."""
-    return x // GRID, y // GRID
+RETRY_GAP = 3.0        # 줍기 실패 후 재시도 간격(초)
+FAIL_LIMIT = 3          # 연속 실패 상한 — 넘으면 긴 대기(드랍이 줍을 수
+LONG_WAIT = 12.0        # 없는 상태일 수 있다: 멀리/이미 꽉 참 등)
 
 
 def log(msg):
@@ -35,53 +28,39 @@ def log(msg):
 def main():
     STOP.unlink(missing_ok=True)
     w = CdpWindow(port=EXT_PORT)
-    blacklist = {}  # 격자셀 -> 등록시각
     picked = 0
-    log("아덴 줍기 시작")
+    fails = 0
+    log("F4 아덴 줍기 시작")
     while not STOP.exists():
         try:
             if not w.active():
                 time.sleep(5)
                 continue
             img = w.capture()
-
-            now = time.time()
-            blacklist = {k: t for k, t in blacklist.items() if now - t < BLACKLIST_TTL}
-            labels = [l for l in detect_labels(img, PICK_RECT)
-                      if cell(l.cx, l.bottom) not in blacklist]
+            labels = detect_labels(img, PICK_RECT)
             if not labels:
-                time.sleep(4)
+                fails = 0
+                time.sleep(2.0)
                 continue
 
-            # 가까운 것부터: 라벨이 화면 아래쪽일수록 캐릭터에 가깝다
-            labels.sort(key=lambda l: -l.bottom)
-            target = labels[0]
-            key = cell(target.cx, target.bottom)
-            geo = w.geometry()
-
-            # 줍기 성공은 채팅 '획득' 메시지로만 인정한다.
-            # 라벨이 사라진 것은 근거가 못 된다 — 클릭하면 캐릭터가 이동하고,
-            # 이동하면 화면이 스크롤돼 모든 라벨 좌표가 함께 밀리기 때문.
             before = pickup_count(img)
-
-            # 1단계: 아이템 위치 클릭 = 그 자리로 이동
-            w.click(*target.click, geo)
-            time.sleep(1.6)
-
-            # 2단계: 이동으로 좌표가 밀렸으므로 재검출해서 가장 가까운 것을 다시 클릭 = 줍기
-            moved = detect_labels(w.capture(), PICK_RECT)
-            if moved:
-                nearest = max(moved, key=lambda l: l.bottom)
-                w.click(*nearest.click, geo)
-                time.sleep(1.4)
-
+            # 사용자가 마우스로 조작 중이면 키만 스킵하고 잠시 양보
+            waited = 0
+            while user_active() and waited < 6 and not STOP.exists():
+                time.sleep(1.0)
+                waited += 1
+            w.key("F4", w.geometry())
+            time.sleep(2.0)
             gain = max(0, pickup_count(w.capture()) - before)
             if gain:
                 picked += gain
+                fails = 0
+                log(f"F4 줍기 획득 {gain} (누적 {picked})")
             else:
-                blacklist[key] = time.time()
-            log(f"줍기 시도 1 → 획득 {gain} (확인된 누적 {picked}, 블랙리스트 {len(blacklist)})")
-            time.sleep(2)
+                fails += 1
+                wait = LONG_WAIT if fails >= FAIL_LIMIT else RETRY_GAP
+                log(f"F4 무반응 ({fails}) — {wait}s 후 재시도")
+                time.sleep(wait)
         except Exception as exc:
             log(f"오류: {exc} — 재접속")
             time.sleep(5)
