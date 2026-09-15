@@ -258,7 +258,7 @@
   const css = document.createElement('style');
   css.textContent = `
 #linc-bot-hud *{box-sizing:border-box}
-#linc-bot-hud{position:fixed;left:0;bottom:0;z-index:2147483647;
+#linc-bot-hud{position:fixed;z-index:2147483647;
   background:linear-gradient(175deg,#16294f 0%,#0b1730 55%,#081026 100%);
   border:2px solid #8a6a2f;border-radius:0 10px 0 0;padding:14px 18px 16px 20px;
   color:#e8e0c8;font:14px/1.55 'Gulim','Malgun Gothic',sans-serif;
@@ -403,7 +403,16 @@
       setTimeout(() => $('lb-msg').textContent = '', 2200);
     } catch (e) { $('lb-msg').textContent = '저장 실패'; }
   };
+  function anchorToGame() {
+    const v = document.querySelector('video');
+    const p = document.getElementById('linc-bot-hud');
+    if (!v || !p) return;
+    const r = v.getBoundingClientRect();
+    p.style.left = Math.max(0, Math.round(r.left)) + 'px';
+    p.style.bottom = Math.max(0, Math.round(innerHeight - r.bottom)) + 'px';
+  }
   async function poll() {
+    anchorToGame();
     try {
       const r = await (await fetch(S + '/hp?scale=4')).json();
       let hp = (r.hp != null && r.hp_max && r.hp > 0) ? r.hp / r.hp_max :
