@@ -299,7 +299,7 @@
   panel.id = 'linc-bot-hud';
   panel.classList.add('open');
   panel.innerHTML = `
-<div id="lb-head"><span id="lb-title">LINC BOT</span><button id="lb-gear" title="설정">⚙</button></div>
+<div id="lb-head"><span id="lb-title">LINC BOT</span><button id="lb-reset" title="위치 초기화" style="width:32px;height:32px;border-radius:9px;border:1px solid #3a465c;background:#232b3a;color:#9fb4d8;font-size:16px;cursor:pointer">↺</button><button id="lb-gear" title="설정">⚙</button></div>
 <div id="lb-bar"><div id="lb-fill"></div></div>
 <div id="lb-txt">HP --%</div>
 <div id="lb-sub">초기화...</div>
@@ -408,10 +408,8 @@
     // 아래쪽에 배치. left=게임 화면 시작 x, bottom=브라우저 맨밑.
     const p = document.getElementById('linc-bot-hud');
     if (!p) return;
-    const v = document.querySelector('video');
-    const vw = v ? v.getBoundingClientRect() : {left: 0, width: innerWidth};
-    p.style.left = Math.max(0, Math.round(vw.left + vw.width / 2 - p.offsetWidth / 2)) + 'px';
-    p.style.bottom = '0px';
+    p.style.left = DEFAULT_POS.l; p.style.top = DEFAULT_POS.t;
+    p.style.right = 'auto'; p.style.bottom = 'auto';
   }
 
   function makeDraggable() {
@@ -463,6 +461,7 @@
       $('lb-sub').textContent = r.bot ? ('사냥 ' + (r.bot.kills || 0) + '회 · 봇 판독') : '봇 대기 중';
     } catch (e) { $('lb-sub').textContent = '수신 없음'; }
   }
+  const _rst = document.getElementById('lb-reset'); if (_rst) _rst.onclick = resetPos;
   makeDraggable();
   window.__lincHudUiTimer = setInterval(poll, 50);
   poll(); loadSet();
