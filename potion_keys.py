@@ -22,8 +22,11 @@ from linux_vision import hp_read, note_recovery
 
 POTION_HP = 0.80      # 사용자 지정 임계: 80% 미만이면 물약
 CONFIRM_GAP = 0.5     # 2프레임 확인 최소 간격(초)
-POTION_WAIT = 1.5     # 키 입력 후 재판독까지 대기(초)
+POTION_WAIT = 1.0     # 키 입력 후 재판독까지 대기(초) — 사망 방지 단축(2026-09-15)
 COOLDOWN = 3.0        # 물약 연타 방지 쿨다운(초)
+DANGER_COOLDOWN = 1.2  # 위험 구간(<0.45) 쿨다운 — 급할 때 빠르게(2026-09-15 사용자 지시)
+CHAIN_MAX = 4          # 한 턴 연속 투입 상한(피가 많이 딸리면 여러 번: 사용자 지시)
+CHAIN_GAP = 1.2        # 연속 투입 간격(게임 물약 재사용 대기)
 GAIN_MIN = 0.04       # 재판독에서 '올랐다'로 인정할 최소 상승 폭
 DRY_LIMIT = 3         # 연속 무반응 허용 턴 수(넘으면 재고 소진)
 
@@ -90,23 +93,34 @@ class PotionKeys:
         if self._low_since is None:          # 1프레임째: 기록만
             self._low_since = now
             return SKIP
-        if now - self._low_since < CONFIRM_GAP or now - self._last_used < COOLDOWN:
+        cooldown = DANGER_COOLDOWN if hp < 0.45 else COOLDOWN
+        if now - self._low_since < CONFIRM_GAP or now - self._last_used < cooldown:
             return SKIP
         self._low_since = None
         self._last_used = now
 
         second = "F6" if self._first_key == "F5" else "F5"
         gained, hp_after = self._try_key(window, self._first_key, hp)
+        if not gained:
+            gained, hp_after = self._try_key(window, second, hp)
+            if gained:
+                self._first_key = second
         if gained:
             self._dry = 0
-            log(f"물약 {self._first_key} (HP {hp:.2f}→{hp_after:.2f})")
-            return USED
-        gained, hp_after = self._try_key(window, second, hp)
-        if gained:
-            self._first_key = second
-            self._dry = 0
-            log(f"물약 {self._first_key} (HP {hp:.2f}→{hp_after:.2f}, "
-                f"첫 키 무반응 폴백)")
+            # 피가 많이 딸리면 여러 번(2026-09-15 사용자 지시): 투입 후에도
+            # 임계 밑이면 게임 재사용 대기 후 연속 투입. CHAIN_MAX 상한.
+            chain = 1
+            base_hp = hp
+            while (hp_after is not None and hp_after < self.threshold
+                   and chain < CHAIN_MAX):
+                time.sleep(CHAIN_GAP)
+                more, hp_next = self._try_key(window, self._first_key, hp_after)
+                if not more:
+                    break
+                chain += 1
+                hp_after = hp_next
+            log(f"물약 {self._first_key} (HP {base_hp:.2f}→{hp_after:.2f}"
+                f"{', 연속 ' + str(chain) + '회' if chain > 1 else ''})")
             return USED
         self._dry += 1
         log(f"물약 무반응 F5/F6 ({self._dry}/{DRY_LIMIT}, HP {hp:.2f})")

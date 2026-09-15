@@ -96,6 +96,23 @@ class TestPotionKeys(unittest.TestCase):
         # 매턴 F5+F6 두 번씩: 3턴 × 2 = 6
         self.assertEqual(self.w.key.call_count, 6)
 
+
+    def test_피가_딸리면_연속_투입한다(self):
+        # 사용자 지시(2026-09-15): 피가 많이 딸리면 여러 번. 투입 후에도
+        # 임계 밑이면 CHAIN_GAP 대기 후 재투입 — 임계 회복 시까지(상한 4회).
+        reread = iter([0.60, 0.86])  # 1회차 +0.2, 2회차 후 임계 회복
+        p = self._potion(lambda img: next(reread))
+        self.assertEqual(self._armed(p, 0.40), USED)
+        self.assertEqual(self._presses(), ["F6", "F6"])
+
+    def test_연속_투입은_상한이_있다(self):
+        # 재판독이 계속 소폭 상승(투입 효과)해도 임계 밑이면 이어가되
+        # CHAIN_MAX(4회)까지만. 재판독이 멈추면(게임 쿨다운) 즉시 중단.
+        reread = iter([0.55, 0.60, 0.65, 0.70, 0.75])
+        p = self._potion(lambda img: next(reread))
+        self.assertEqual(self._armed(p, 0.40), USED)
+        self.assertEqual(len(self._presses()), 4)
+
     def test_F5_성공_후에는_F5를_먼저_누른다(self):
         # F6 무반응 → F5 반응: 다음 사용부터 F5 우선(학습).
         reread = iter([0.79, 0.95])  # F6 재판독 무반응, F5 재판독 상승

@@ -288,7 +288,9 @@ def main():
                 if result == EXHAUSTED:
                     log("물약 재고 소진 — 사냥 중단(사망 방지)")
                     break
-                time.sleep(2.0)
+                # HP 폴링 0.7초(사용자 지시 '감지가 늦으면 죽는다') —
+                # 종전 2.0초 대비 감지 지연 1/3.
+                time.sleep(0.7)
                 continue
             if hp < 0.45:
                 log(f"HP 위험({hp:.2f}): 이탈 이동")
