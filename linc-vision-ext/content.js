@@ -299,8 +299,12 @@
 <div id="lb-sub">초기화...</div>
 <div id="lb-opts">
   <div class="lb-sec">🧪 물약</div>
-  <div class="lb-row"><label>물약 키</label></div>
+  <div class="lb-row"><label>🔴 빨강(위험)</label></div>
+  <div class="lb-keys" id="lb-keyr"></div>
+  <div class="lb-row" style="margin-top:6px"><label>🟠 주홍(기본)</label></div>
   <div class="lb-keys" id="lb-key1"></div>
+  <div class="lb-row" style="margin-top:6px"><label>🟢 초록(가벼움)</label></div>
+  <div class="lb-keys" id="lb-keyg"></div>
   <div class="lb-row" style="margin-top:6px"><label>보조 키</label></div>
   <div class="lb-keys" id="lb-key2"></div>
   <div class="lb-row"><label>시작</label><input class="lb-slider" id="st-start" type="range" min="10" max="95"><span class="val" id="v-start">80%</span></div>
@@ -318,7 +322,23 @@
   document.body.appendChild(panel);
   const $ = id => document.getElementById(id);
   const KEYS = [...Array(9)].map((_, i) => 'F' + (i + 1));
-  const sel = { key: 'F6', alt: 'F5', ret: 'F8' };
+  const sel = { key: 'F6', alt: 'F5', ret: 'F8', red: '', green: '' };
+
+  function gridX(elId, prop) {
+    const el = $(elId);
+    const none = document.createElement('div');
+    none.className = 'lb-key' + (sel[prop] === '' ? ' sel' : '');
+    none.textContent = ' - ';
+    none.onclick = () => { sel[prop] = ''; el.querySelectorAll('.lb-key').forEach(x => x.classList.toggle('sel', x === none)); };
+    el.appendChild(none);
+    KEYS.forEach(k => {
+      const b = document.createElement('div');
+      b.className = 'lb-key' + (sel[prop] === k ? ' sel' : '');
+      b.textContent = k;
+      b.onclick = () => { sel[prop] = k; el.querySelectorAll('.lb-key').forEach(x => x.classList.toggle('sel', x === b)); };
+      el.appendChild(b);
+    });
+  }
   function grid(elId, prop) {
     const el = $(elId);
     el.innerHTML = KEYS.map(k => `<div class="lb-key${sel[prop]===k?' sel':''}" data-k="${k}">${k}</div>`).join('');
@@ -339,8 +359,8 @@
   $('lb-gear').onclick = () => panel.classList.toggle('open');
   async function loadSet() {
     try { const s = await (await fetch(S + '/bot-settings')).json();
-      sel.key = s.potion_key; sel.alt = s.potion_key_alt; sel.ret = s.return_key;
-      grid('lb-key1', 'key'); grid('lb-key2', 'alt'); grid('lb-key3', 'ret');
+      sel.key = s.orange_key || s.potion_key; sel.alt = s.potion_key_alt; sel.ret = s.return_key; sel.red = s.red_key || ''; sel.green = s.green_key || '';
+      grid('lb-key1', 'key'); grid('lb-key2', 'alt'); grid('lb-key3', 'ret'); gridX('lb-keyr', 'red'); gridX('lb-keyg', 'green');
       $('st-start').value = s.potion_start_pct; $('v-start').textContent = s.potion_start_pct + '%';
       $('st-goal').value = s.recover_to_pct; $('v-goal').textContent = s.recover_to_pct + '%';
       $('st-danger').value = s.danger_pct; $('v-danger').textContent = s.danger_pct + '%';
@@ -350,7 +370,7 @@
   }
   $('lb-save').onclick = async () => {
     try {
-      const body = { potion_key: sel.key, potion_key_alt: sel.alt, return_key: sel.ret,
+      const body = { orange_key: sel.key, red_key: sel.red, green_key: sel.green, potion_key: sel.key, potion_key_alt: sel.alt, return_key: sel.ret,
         potion_start_pct: +$('st-start').value, recover_to_pct: +$('st-goal').value,
         danger_pct: +$('st-danger').value, chain_max: chain, enabled: on };
       await fetch(S + '/bot-settings', { method: 'POST',
