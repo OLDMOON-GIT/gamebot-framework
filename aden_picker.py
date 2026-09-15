@@ -79,6 +79,24 @@ def main():
             while user_active() and waited < 6 and not STOP.exists():
                 time.sleep(1.0)
                 waited += 1
+            # 사용자 지시(2026-09-16): 칼질 중에는 클릭하지 않되 이동은
+            # 허용 — 비전투일 때 가장 가까운 박스 위로 클릭 이동 후 F4.
+            target = min(near, key=lambda b: (b[0] - cx) ** 2 + (b[1] - cy) ** 2)
+            bx, by = target
+            dist = int(((bx - cx) ** 2 + (by - cy) ** 2) ** 0.5)
+            if dist > 70:   # 발밑이 아니면 박스 위로 이동
+                waited = 0
+                while user_active() and waited < 6 and not STOP.exists():
+                    time.sleep(1.0)
+                    waited += 1
+                w.click(bx, by, w.geometry())
+                time.sleep(2.2)
+                img2 = w.capture()
+                c2 = find_character(img2)
+                if c2 and ((bx - c2[0]) ** 2 + (by - c2[1]) ** 2) > 100 ** 2:
+                    log("이동 미완 — 다시 시도")
+                    time.sleep(1.5)
+                    continue
             before = pickup_count(img, w)
             # 사용자 지시(2026-09-16): F4는 한 번만 누르지 말 것 — 여러 번.
             # 반경에 박스가 여러 개면 연타로 순차 줍기.
