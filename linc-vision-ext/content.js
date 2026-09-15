@@ -367,6 +367,7 @@
   let on = true;
   $('st-on').onclick = () => { on = !on; $('st-on').classList.toggle('on', on); };
   $('lb-gear').onclick = () => panel.classList.toggle('open');
+  fillKinds('st-kind1', 'v-heal1'); fillKinds('st-kind2', 'v-heal2');
   async function loadSet() {
     try { const s = await (await fetch(S + '/bot-settings')).json();
       sel.key = s.orange_key || s.potion_key; sel.alt = s.potion_key_alt; sel.ret = s.return_key; sel.red = s.red_key || ''; sel.green = s.green_key || '';
