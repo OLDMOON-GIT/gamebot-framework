@@ -32,7 +32,7 @@ _OCR_SCALE = 2  # tesseract 는 작은 글씨에 약해 2배 확대
 PICKUP_KEYWORD = "획득"
 
 
-def _preprocess(img: np.ndarray) -> np.ndarray:
+def _preprocess(img: np.ndarray, win=None) -> np.ndarray:
     """채팅 영역을 잘라 OCR 하기 좋게 전처리한다."""
     x0, y0, x1, y1 = CHAT_RECT
     crop = img[y0:y1, x0:x1]
