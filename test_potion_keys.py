@@ -118,6 +118,7 @@ class TestPotionKeys(unittest.TestCase):
         # CHAIN_MAX(4회)까지만. 재판독이 멈추면(게임 쿨다운) 즉시 중단.
         reread = iter([0.55, 0.60, 0.65, 0.70, 0.75])
         p = self._potion(lambda img: next(reread))
+        p._probe_idx = 99
         self.assertEqual(self._armed(p, 0.40), USED)
         self.assertEqual(len(self._presses()), 4)
 
