@@ -15,7 +15,7 @@ import numpy as np
 
 from cdp_window import CdpWindow, EXT_PORT
 from linux_vision import find_character, hp_read, red_name_candidates
-from potion_keys import EXHAUSTED, RETURN, USED, PotionKeys
+from potion_keys import EXHAUSTED, USED, PotionKeys
 from user_gate import user_active
 
 RUNTIME = Path("/tmp/linc-bot-linux")
@@ -195,9 +195,7 @@ def hp_guard(ratio):
     if ratio is None:
         return None
     prev = _HP_GUARD["last"]
-    if prev is not None and abs(ratio - prev) > 0.15:
-        # 2026-09-15 재발: 만피(1.0)→0.79 오독(Δ0.21)이 0.30 임계를 뚫고
-        # 물약을 발사. 진짜 급락은 연속 2회로 다음 루프(0.5초)에 승인된다.
+    if prev is not None and abs(ratio - prev) > 0.30:
         _HP_GUARD["streak"] += 1
         if _HP_GUARD["streak"] >= 2:
             _HP_GUARD["last"] = ratio
@@ -209,14 +207,12 @@ def hp_guard(ratio):
     return ratio
 
 
-def post_bot_status(ratio, kills=None, note=None, hp=None, hp_max=None):
+def post_bot_status(ratio, kills=None, note=None):
     """봇 판독값을 ext_vision에 게시 — 크롬 익스텐션 HUD UI 데이터.
 
     실패해도 봇 동작에 영향 없음(UI 전용 채널)."""
     try:
         payload = {"ratio": ratio}
-        if hp is not None and hp_max:
-            payload["hp"], payload["hp_max"] = hp, hp_max
         if kills is not None:
             payload["kills"] = kills
         if note:
@@ -292,12 +288,9 @@ def main():
                 if result == EXHAUSTED:
                     log("물약 재고 소진 — 사냥 중단(사망 방지)")
                     break
-                if result == RETURN:
-                    log("F8 귀환 — 사냥 중단(마을)")
-                    break
-                # HP 폴링 0.35초(사용자 지시 '동기화가 늦음') — 캡처+
-                # 판독 시간(~0.6s)을 합쳐 게시 주기 약 1초 미만.
-                time.sleep(0.35)
+                # HP 폴링 0.7초(사용자 지시 '감지가 늦으면 죽는다') —
+                # 종전 2.0초 대비 감지 지연 1/3.
+                time.sleep(0.7)
                 continue
             if hp < 0.45:
                 log(f"HP 위험({hp:.2f}): 이탈 이동")

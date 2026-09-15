@@ -47,7 +47,6 @@ class ItemLabel:
     bottom: int      # 라벨 하단 y
     w: int           # 라벨 폭
     h: int           # 라벨 높이
-    name: str = ""   # 라벨 이름 OCR(등급 판별용 — 비어 있으면 미판독)
 
     @property
     def click(self) -> tuple[int, int]:
@@ -137,26 +136,3 @@ def annotate(img: np.ndarray, labels: list[ItemLabel]) -> np.ndarray:
                       (l.cx + l.w // 2, l.bottom), (0, 0, 255), 3)
         cv2.circle(vis, l.click, 9, (0, 255, 255), -1)
     return vis
-
-
-def read_label_names(img, labels, scale=3):
-    """라벨 내부 텍스트(아이템 이름)를 OCR해 name 붙인 목록을 반환한다.
-
-    라벨은 흰 테두리 + 어두운 글씨(밝은 배경)라 tesseract 기본 극성으로
-    읽힌다. OCR 실패는 name=""(unknown 취급) — 판별이 줍기를 막지 않게.
-    """
-    import dataclasses
-    from linux_vision import ocr
-    out = []
-    for lab in labels:
-        x0 = max(0, lab.cx - lab.w // 2 + 2)
-        y0 = max(0, lab.bottom - lab.h + 2)
-        crop = img[y0:lab.bottom - 2, x0:x0 + lab.w - 4]
-        if crop.size == 0:
-            out.append(dataclasses.replace(lab, name=""))
-            continue
-        big = cv2.resize(crop, None, fx=scale, fy=scale,
-                         interpolation=cv2.INTER_CUBIC)
-        text = ocr(big) or ""
-        out.append(dataclasses.replace(lab, name=text.strip()))
-    return out

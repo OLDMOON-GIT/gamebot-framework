@@ -48,27 +48,6 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         kind = self.path.strip('/').lower()
-        if kind == 'bot-settings':
-            # 크롬 익스텐션 UI 세팅 저장(사용자 지시 2026-09-15): 물약 키/
-            # 시작%/목표%/위험% 등. 봇은 다음 체크부터 즉시 반영.
-            try:
-                n = int(self.headers.get('Content-Length') or 0)
-                payload = json.loads(self.rfile.read(n) or b'{}')
-                import bot_settings
-                saved = bot_settings.save(payload)
-            except Exception:
-                self.send_response(400)
-                self._cors()
-                self.end_headers()
-                return
-            body = json.dumps(saved).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self._cors()
-            self.end_headers()
-            self.wfile.write(body)
-            return
         if kind == 'bot-hp':
             # 봇(onestep)이 판독한 HP를 게시 — 확장 UI가 /hp에서 우선
             # 표시한다(2026-09-15: 크롬 익스텐션 HUD UI 데이터 소스).
@@ -158,16 +137,6 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if self.path.startswith('/bot-settings'):
-            import bot_settings
-            body = json.dumps(bot_settings.load(refresh=0)).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self._cors()
-            self.end_headers()
-            self.wfile.write(body)
-            return
         if self.path.startswith('/hp'):
             try:
                 q = self.path.split('?', 1)[1] if '?' in self.path else ''
@@ -186,16 +155,6 @@ class _Handler(BaseHTTPRequestHandler):
                 ent = _latest.get('bot')
                 if ent and time.time() - ent.get('ts', 0) <= 10.0:
                     bot = dict(ent)
-            # 확장 즉시 판독(100ms 신선도): UI 동기화 지연 단축용.
-            ext_hp = ext_hp_max = None
-            with _lock:
-                ent = _latest.get('hud') or {}
-                if time.time() - ent.get('ext_hp_ts', 0) <= 1.0:
-                    ext_hp, ext_hp_max = ent.get('ext_hp'), ent.get('ext_hp_max')
-            if ext_hp is not None and ext_hp_max:
-                hp, hp_max = ext_hp, ext_hp_max
-                if ratio is None and hp_max:
-                    ratio = hp / hp_max
             if bot is not None:
                 ratio = bot.get('ratio', ratio)
             body = json.dumps(
@@ -242,33 +201,6 @@ class _Handler(BaseHTTPRequestHandler):
 
     def log_message(self, *args):
         pass  # 접근 로그 침묵
-
-
-def _hp_reader_loop():
-    """확장 HUD(video 스트립)를 백그라운드 판독(사용자 지시 2026-09-15
-    'HP동기화 100ms'). read_hp는 tesseract 서브프로세스라 ~300ms가 바닥이
-    지만 항상 최신 프레임만 읽어 신선도를 유지한다."""
-    while True:
-        try:
-            cur, mx = read_hp(max_age=1.0)
-            # '0' 오독(2026-09-15 사용자 보고 '0퍼됐다')은 게시하지 않는다
-            # — HP 0%는 실제로 죽는 상황이라 봇이 귀환 처리한다.
-            if (cur is not None and cur > 3 and mx and cur / mx >= 0.12
-            ):   # 저값/비율 이상(12% 미만) 오독 차단
-                with _lock:
-                    ent = _latest.setdefault('hud', {})
-                    ent['ext_hp'], ent['ext_hp_max'] = cur, mx
-                    ent['ext_hp_ts'] = time.time()
-        except Exception:
-            pass
-        time.sleep(0.05)
-
-
-def start_reader_thread():
-    import threading
-    t = threading.Thread(target=_hp_reader_loop, daemon=True)
-    t.start()
-    return t
 
 
 def start(port=DEFAULT_PORT):
@@ -405,7 +337,6 @@ if __name__ == '__main__':
     import sys
     sys.path.insert(0, '/home/oldmoon/workspace/linc-bot')
     start()
-    start_reader_thread()
     print('수신 서버 대기 중 127.0.0.1:%d (Ctrl-C 종료)' % DEFAULT_PORT)
     ok = fail = 0
     try:

@@ -251,177 +251,38 @@
   // 우선). 이 파일은 크롬 재시작 시점부터 상주한다(그 전엔 페이지 주입본
   // 이 동일 UI를 제공).
   function installHudUi() {
-
-  if (window.__lincHudUiTimer) clearInterval(window.__lincHudUiTimer);
-  document.querySelectorAll('#linc-bot-hud').forEach(e => e.remove());
-  const S = 'http://127.0.0.1:17311';
-  const css = document.createElement('style');
-  css.textContent = `
-#linc-bot-hud *{box-sizing:border-box}
-#linc-bot-hud{position:fixed;left:0;bottom:0;z-index:2147483647;background:linear-gradient(160deg,#181d28ee,#0c0f16ee);border:1px solid #3a465c;border-radius:0 10px 0 0;padding:14px 18px 16px 20px;color:#e8ecf4;font:15px/1.5 'Segoe UI',sans-serif;min-width:340px;box-shadow:0 8px 32px rgba(0,0,0,.65);user-select:none}
-#lb-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-#lb-title{font-weight:700;font-size:19px;letter-spacing:2px;color:#7ec8ff}
-#lb-gear{margin-left:auto;width:34px;height:34px;border-radius:9px;border:1px solid #3a465c;background:#232b3a;color:#9fb4d8;font-size:18px;cursor:pointer;transition:.15s}
-#lb-gear:hover{background:#2e3950;color:#fff}
-#lb-bar{width:100%;height:18px;background:#10131c;border-radius:9px;overflow:hidden;border:1px solid #000}
-#lb-fill{height:100%;width:0%;border-radius:9px;background:linear-gradient(90deg,#37d67a,#8ff5b3);transition:width .3s}
-#lb-txt{font-size:24px;font-weight:700;margin-top:6px}
-#lb-sub{color:#8d9cb8;font-size:13px;margin-top:2px}
-#lb-opts{display:none;flex-direction:column;gap:12px;margin-top:12px;padding-top:14px;border-top:1px solid #2c3648}
-#linc-bot-hud.open #lb-opts{display:flex}
-.lb-sec{font-size:12px;font-weight:700;color:#7ec8ff;letter-spacing:1px;margin-bottom:-4px}
-.lb-row{display:flex;align-items:center;gap:10px}
-.lb-row label{flex:1;color:#c3cdde;font-size:14px}
-.lb-row .val{min-width:48px;text-align:right;font-weight:700;color:#fff}
-.lb-slider{flex:1.4;appearance:none;height:6px;border-radius:3px;background:#2a3346;outline:none}
-.lb-slider::-webkit-slider-thumb{appearance:none;width:18px;height:18px;border-radius:50%;background:#4da3ff;border:2px solid #fff;cursor:pointer}
-.lb-keys{display:grid;grid-template-columns:repeat(9,1fr);gap:4px}
-.lb-key{padding:6px 0;border-radius:7px;border:1px solid #3a465c;background:#232b3a;color:#9fb4d8;font:600 13px monospace;cursor:pointer;text-align:center;transition:.12s}
-.lb-key:hover{background:#2e3950}
-.lb-key.sel{background:#2f6fc4;color:#fff;border-color:#7ec8ff;box-shadow:0 0 8px #2f6fc488}
-.lb-toggle{position:relative;width:52px;height:26px;border-radius:13px;background:#2a3346;cursor:pointer;transition:.2s;flex:none}
-.lb-toggle.on{background:#2f9e5b}
-.lb-toggle::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.2s}
-.lb-toggle.on::after{left:29px}
-#lb-stepper{display:flex;align-items:center;gap:8px}
-#lb-stepper button{width:30px;height:30px;border-radius:8px;border:1px solid #3a465c;background:#232b3a;color:#fff;font-size:17px;cursor:pointer}
-#lb-save{margin-top:4px;padding:10px;border:0;border-radius:10px;background:linear-gradient(160deg,#2f6fc4,#2456a0);color:#fff;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:1px}
-#lb-save:hover{filter:brightness(1.12)}
-#lb-msg{text-align:center;font-size:13px;color:#69d98d;min-height:16px}`;
-  document.head.appendChild(css);
-  const panel = document.createElement('div');
-  panel.id = 'linc-bot-hud';
-  
-  panel.innerHTML = `
-<div id="lb-head"><span id="lb-title">LINC BOT</span><button id="lb-gear" title="설정">⚙</button></div>
-<div id="lb-bar"><div id="lb-fill"></div></div>
-<div id="lb-txt">HP --%</div>
-<div id="lb-sub">초기화...</div>
-<div id="lb-opts">
-  <div class="lb-sec">🧪 물약</div>
-  <div class="lb-row"><label>주 물약</label><select id="st-kind1" style="font-size:13px;padding:2px 6px;background:#232b3a;color:#c3cdde;border:1px solid #3a465c"></select><span class="val" id="v-heal1">+8%</span></div>
-  <div class="lb-keys" id="lb-key1"></div>
-  <div class="lb-row" style="margin-top:6px"><label>위기 물약(&lt;45%)</label><select id="st-kind2" style="font-size:13px;padding:2px 6px;background:#232b3a;color:#c3cdde;border:1px solid #3a465c"></select><span class="val" id="v-heal2">-</span></div>
-  <div class="lb-keys" id="lb-key2"></div>
-  <div class="lb-row" style="margin-top:6px"><label>보조 키</label></div>
-  <div class="lb-keys" id="lb-key2"></div>
-  <div class="lb-row"><label>시작</label><input class="lb-slider" id="st-start" type="range" min="10" max="95"><span class="val" id="v-start">80%</span></div>
-  <div class="lb-row"><label>목표 회복</label><input class="lb-slider" id="st-goal" type="range" min="10" max="99"><span class="val" id="v-goal">80%</span></div>
-  <div class="lb-row"><label>연속 상한</label><div id="lb-stepper"><button id="st-chminus">−</button><span class="val" id="v-chain">6</span><button id="st-chplus">＋</button></div></div>
-  <div class="lb-sec">🌀 비상 귀환</div>
-  <div class="lb-row"><label>귀환 키(F8 주문서)</label></div>
-  <div class="lb-keys" id="lb-key3"></div>
-  <div class="lb-row"><label>위험 임계</label><input class="lb-slider" id="st-danger" type="range" min="1" max="40"><span class="val" id="v-danger">20%</span></div>
-  <div class="lb-sec">전체</div>
-  <div class="lb-row"><label>봇 활성</label><div class="lb-toggle on" id="st-on"></div></div>
-  <button id="lb-save">저 장</button>
-  <div id="lb-msg"></div>
-</div>`;
-  document.body.appendChild(panel);
-  const $ = id => document.getElementById(id);
-  const KINDS = {'초록':6,'맑은':8,'주홍':12,'붉은':18,'진홍':24};
-  function fillKinds(id, healId) {
-    const el = $(id); el.innerHTML = '<option value="">-</option>' +
-      Object.keys(KINDS).map(k => `<option value="${k}">${k}</option>`).join('');
-    el.onchange = () => { $(healId).textContent = el.value ? '+' + KINDS[el.value] + '%' : '-'; };
+    if (document.getElementById('linc-bot-hud')) return;
+    const panel = document.createElement('div');
+    panel.id = 'linc-bot-hud';
+    panel.style.cssText = 'position:fixed;left:12px;top:12px;z-index:2147483647;pointer-events:none;background:rgba(10,12,18,0.75);border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:10px 14px;color:#eee;font:12px/1.5 monospace;min-width:160px;box-shadow:0 2px 12px rgba(0,0,0,.5)';
+    panel.innerHTML = '<div style="font-weight:bold;color:#7ec8ff;letter-spacing:1px;margin-bottom:5px">LINC BOT</div>'
+      + '<div style="width:160px;height:10px;background:#1a1a1a;border-radius:5px;overflow:hidden;border:1px solid #000">'
+      + '<div id="lb-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#3ddc84,#a5ffb0);transition:width .3s"></div></div>'
+      + '<div id="lb-txt" style="margin-top:5px">HP --%</div>'
+      + '<div id="lb-sub" style="color:#9aa;font-size:11px">초기화...</div>';
+    document.body.appendChild(panel);
+    const fill = document.getElementById('lb-fill');
+    const txt = document.getElementById('lb-txt');
+    const sub = document.getElementById('lb-sub');
+    async function poll() {
+      try {
+        const r = await (await fetch(SERVER + '/hp?scale=4')).json();
+        const hp = (r.bot && r.bot.ratio != null) ? r.bot.ratio :
+                   (r.ratio != null && r.ratio !== false) ? r.ratio :
+                   (r.hp != null && r.hp_max ? r.hp / r.hp_max : null);
+        if (hp != null) {
+          fill.style.width = Math.round(hp * 100) + '%';
+          fill.style.background = hp < 0.45 ? 'linear-gradient(90deg,#ff5252,#ff8a80)'
+            : hp < 0.8 ? 'linear-gradient(90deg,#ffd23f,#ffe082)'
+            : 'linear-gradient(90deg,#3ddc84,#a5ffb0)';
+          txt.textContent = 'HP ' + Math.round(hp * 100) + '%' + (r.hp ? ' (' + r.hp + '/' + r.hp_max + ')' : '');
+        }
+        sub.textContent = r.bot ? ('사냥 ' + (r.bot.kills || 0) + '회 · 봇 판독') : '봇 대기 중';
+      } catch (e) { sub.textContent = '수신 없음(ext_vision 다운?)'; }
+    }
+    setInterval(poll, 500);
+    poll();
+    log('HUD UI 설치');
   }
-  const KEYS = [...Array(9)].map((_, i) => 'F' + (i + 1));
-  const sel = { key: 'F6', alt: 'F5', ret: 'F8', red: '', green: '' };
-
-  function gridX(elId, prop) {
-    const el = $(elId);
-    const none = document.createElement('div');
-    none.className = 'lb-key' + (sel[prop] === '' ? ' sel' : '');
-    none.textContent = ' - ';
-    none.onclick = () => { sel[prop] = ''; el.querySelectorAll('.lb-key').forEach(x => x.classList.toggle('sel', x === none)); };
-    el.appendChild(none);
-    KEYS.forEach(k => {
-      const b = document.createElement('div');
-      b.className = 'lb-key' + (sel[prop] === k ? ' sel' : '');
-      b.textContent = k;
-      b.onclick = () => { sel[prop] = k; el.querySelectorAll('.lb-key').forEach(x => x.classList.toggle('sel', x === b)); };
-      el.appendChild(b);
-    });
-  }
-  function grid(elId, prop) {
-    const el = $(elId);
-    el.innerHTML = KEYS.map(k => `<div class="lb-key${sel[prop]===k?' sel':''}" data-k="${k}">${k}</div>`).join('');
-    el.querySelectorAll('.lb-key').forEach(b => b.onclick = () => {
-      sel[prop] = b.dataset.k;
-      el.querySelectorAll('.lb-key').forEach(x => x.classList.toggle('sel', x === b));
-    });
-  }
-  function bindSlider(id, vid, suffix='%') {
-    $(id).oninput = () => $(vid).textContent = $(id).value + suffix;
-  }
-  bindSlider('st-start', 'v-start'); bindSlider('st-goal', 'v-goal'); bindSlider('st-danger', 'v-danger');
-  let chain = 6;
-  $('st-chminus').onclick = () => { chain = Math.max(1, chain - 1); $('v-chain').textContent = chain; };
-  $('st-chplus').onclick = () => { chain = Math.min(8, chain + 1); $('v-chain').textContent = chain; };
-  let on = true;
-  $('st-on').onclick = () => { on = !on; $('st-on').classList.toggle('on', on); };
-  $('lb-gear').onclick = () => panel.classList.toggle('open');
-  fillKinds('st-kind1', 'v-heal1'); fillKinds('st-kind2', 'v-heal2');
-  async function loadSet() {
-    try { const s = await (await fetch(S + '/bot-settings')).json();
-      sel.key = s.orange_key || s.potion_key; sel.alt = s.potion_key_alt; sel.ret = s.return_key; sel.red = s.red_key || ''; sel.green = s.green_key || '';
-      const mp = s.main_potion || {}, cp = s.crisis_potion || {};
-      sel.kind1 = mp.kind || '맑은'; sel.kind2 = cp.kind || '';
-      sel.ckey = cp.key || '';
-      $('st-kind1').value = sel.kind1; $('st-kind2').value = sel.kind2;
-      $('v-heal1').textContent = '+' + (mp.heal_pct || 8) + '%';
-      $('v-heal2').textContent = sel.kind2 ? '+' + (cp.heal_pct || 12) + '%' : '-';
-      const csel = document.querySelector('#lb-key2 .lb-key.sel');
-      if (sel.ckey && !csel) { document.querySelectorAll('#lb-key2 .lb-key').forEach(x => { if (x.textContent === sel.ckey) x.classList.add('sel'); }); }
-      grid('lb-key1', 'key'); grid('lb-key2', 'alt'); grid('lb-key3', 'ret'); gridX('lb-keyr', 'red'); gridX('lb-keyg', 'green');
-      $('st-start').value = s.potion_start_pct; $('v-start').textContent = s.potion_start_pct + '%';
-      $('st-goal').value = s.recover_to_pct; $('v-goal').textContent = s.recover_to_pct + '%';
-      $('st-danger').value = s.danger_pct; $('v-danger').textContent = s.danger_pct + '%';
-      chain = s.chain_max; $('v-chain').textContent = chain;
-      on = s.enabled; $('st-on').classList.toggle('on', on);
-    } catch (e) {}
-  }
-  $('lb-save').onclick = async () => {
-    try {
-      const heal1 = KINDS[$('st-kind1').value] || 8;
-      const heal2 = KINDS[$('st-kind2').value] || 0;
-      const ckey = document.querySelector('#lb-key2 .lb-key.sel')?.textContent || '';
-      const body = { main_potion: {key: sel.key, kind: $('st-kind1').value, heal_pct: heal1},
-        crisis_potion: {key: ckey, kind: $('st-kind2').value, heal_pct: heal2},
-        potion_key: sel.key, potion_key_alt: sel.alt, return_key: sel.ret,
-        potion_start_pct: +$('st-start').value, recover_to_pct: +$('st-goal').value,
-        danger_pct: +$('st-danger').value, chain_max: chain, enabled: on };
-      await fetch(S + '/bot-settings', { method: 'POST',
-        headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-      $('lb-msg').textContent = '저장됨 — 즉시 반영 ✓';
-      setTimeout(() => $('lb-msg').textContent = '', 2200);
-    } catch (e) { $('lb-msg').textContent = '저장 실패'; }
-  };
-  async function poll() {
-    try {
-      const r = await (await fetch(S + '/hp?scale=4')).json();
-      // 봇(CDP 정밀 판독+가드) 우선 — ext 즉시값은 저폭가 오독 사례
-      // (실제 92%를 74%로 표시, 2026-09-15)가 있어 폴백으로만 쓴다.
-      let hp = (r.bot && r.bot.ratio != null) ? r.bot.ratio :
-               (r.hp != null && r.hp_max && r.hp > 3 && r.hp / r.hp_max > 0.15) ? r.hp / r.hp_max :
-               (r.ratio != null && r.ratio !== false) ? r.ratio : null;
-      if (hp != null && (hp < 0.15 || (window.__lbLast != null && window.__lbLast > 0.5 && hp < window.__lbLast - 0.4))) hp = null;  // 저값/급낙 오독 — 이전 표시 유지
-      if (hp != null) {
-        $('lb-fill').style.width = Math.round(hp * 100) + '%';
-        $('lb-fill').style.background = hp < 0.45 ? 'linear-gradient(90deg,#e5484d,#ff8a8a)'
-          : hp < 0.8 ? 'linear-gradient(90deg,#f5b431,#ffd76e)'
-          : 'linear-gradient(90deg,#37d67a,#8ff5b3)';
-        window.__lbLast = hp;
-        let detail = '';
-        if (r.bot && r.bot.hp && r.bot.hp_max) detail = ' (' + r.bot.hp + '/' + r.bot.hp_max + ')';
-        $('lb-txt').textContent = 'HP ' + Math.round(hp * 100) + '%' + detail;
-      }
-      $('lb-sub').textContent = r.bot ? ('사냥 ' + (r.bot.kills || 0) + '회 · 봇 판독') : '봇 대기 중';
-    } catch (e) { $('lb-sub').textContent = '수신 없음'; }
-  }
-  window.__lincHudUiTimer = setInterval(poll, 50);
-  poll(); loadSet();
-  return 'ui-v3';
-}
-installHudUi();
+  installHudUi();
 })();

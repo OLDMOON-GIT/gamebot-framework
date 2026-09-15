@@ -30,26 +30,11 @@ _OCR_SCALE = 2  # tesseract 는 작은 글씨에 약해 2배 확대
 
 # 줍기 성공 메시지 키워드. 게임 문구는 '아데나 (68) 을(를) 획득하였습니다.' 형태.
 PICKUP_KEYWORD = "획득"
-EXP_KEYWORD = "경험치"   # 내가 몹을 잡았다는 신호(남의 드랍 구분용)
 
 
-def _rect(win=None):
-    """채팅 영역 rect — win이 주어지면 런타임 계산(레이아웃 변화 대응),
-    없으면 폴백 상수. 실측(2026-09-15): 폴백 (1141,900)이 실제 채팅
-    (663,1069)과 완전히 어긋나 획득 판정이 늘 0이었다."""
-    if win is None:
-        return CHAT_RECT
-    try:
-        from game_area import chat_rect
-        r = chat_rect(win)
-        return r if r else CHAT_RECT
-    except Exception:
-        return CHAT_RECT
-
-
-def _preprocess(img: np.ndarray, win=None) -> np.ndarray:
+def _preprocess(img: np.ndarray) -> np.ndarray:
     """채팅 영역을 잘라 OCR 하기 좋게 전처리한다."""
-    x0, y0, x1, y1 = _rect(win)
+    x0, y0, x1, y1 = CHAT_RECT
     crop = img[y0:y1, x0:x1]
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     _, binary = cv2.threshold(gray, _OCR_THRESH, 255, cv2.THRESH_BINARY)
@@ -59,9 +44,9 @@ def _preprocess(img: np.ndarray, win=None) -> np.ndarray:
                       interpolation=cv2.INTER_CUBIC)
 
 
-def read_chat(img: np.ndarray, win=None) -> str:
+def read_chat(img: np.ndarray) -> str:
     """채팅 영역 OCR 결과 원문을 돌려준다."""
-    prepped = _preprocess(img, win)
+    prepped = _preprocess(img)
     ok, buf = cv2.imencode(".png", prepped)
     if not ok:
         return ""
@@ -75,13 +60,13 @@ def read_chat(img: np.ndarray, win=None) -> str:
     return res.stdout.decode("utf-8", "replace")
 
 
-def pickup_count(img: np.ndarray, win=None) -> int:
+def pickup_count(img: np.ndarray) -> int:
     """채팅창에 보이는 '획득' 메시지 라인 수.
 
     절대값 자체는 의미가 없다(채팅이 스크롤되면 줄어든다).
     클릭 전후로 호출해 **증가했을 때만** 줍기 성공으로 판정할 것.
     """
-    text = read_chat(img, win)
+    text = read_chat(img)
     return sum(1 for line in text.splitlines() if PICKUP_KEYWORD in line)
 
 
@@ -92,9 +77,3 @@ if __name__ == "__main__":
     print("--- 채팅 OCR ---")
     print(read_chat(frame))
     print(f"--- 획득 라인 수: {pickup_count(frame)} ---")
-
-
-def exp_count(img: np.ndarray, win=None) -> int:
-    """채팅창에 보이는 '경험치' 라인 수 — 증가 = 내가 몹을 처치했다."""
-    text = read_chat(img, win)
-    return sum(1 for line in text.splitlines() if EXP_KEYWORD in line)
