@@ -33,7 +33,9 @@ CHAIN_MAX = 4          # 한 턴 연속 투입 상한(피가 많이 딸리면 �
 # 귀환한다. 귀환 성공 여부와 무관하게 사냥은 중단이 안전하다.
 EMERGENCY_RETURN_KEY = "F8"
 EMERGENCY_HP = 0.20
-CHAIN_GAP = 0.4        # 연속 투입 간격 — 게임 물약 쿨은 짧다(실측 연속 발동 확인)
+CHAIN_GAP = 0.6        # 연속 투입 간격 — 게임 물약 쿨다운 실측(~0.6s) 정합
+POTION_GAIN = 0.08     # 물약 1개 회복량(2026-09-15 조사: 145건 실측 중앙
+                       # +8%p, 현재 F5/F6 슬롯 소회복 물약 기준)
 GAIN_MIN = 0.02       # 재판독 상승 인정 최소폭 — 소회복 물약도 인정(2026-09-15)
 DRY_LIMIT = 3         # 연속 무반응 허용 턴 수(넘으면 재고 소진)
 
@@ -216,8 +218,10 @@ class PotionKeys:
                     break
                 chain += 1
                 hp_after = hp_next
+            need = int((thr - base_hp) / POTION_GAIN) + 1
             log(f"물약 {self._first_key} (HP {base_hp:.2f}→{hp_after:.2f}"
-                f"{', 연속 ' + str(chain) + '회' if chain > 1 else ''})")
+                f"{', 연속 ' + str(chain) + '회' if chain > 1 else ''}"
+                f"{f', 예상필요 {need}개' if chain == 1 and base_hp < 0.7 else ''})")
             # 턴을 마쳐도 임계 미달이면 쿨다운을 풀어 다음 폴링(0.5초)에
             # 즉시 재개한다 — 80% 이상 회복이 원칙(사용자 지시).
             if hp_after is not None and hp_after < thr:
