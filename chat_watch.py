@@ -76,3 +76,11 @@ if __name__ == "__main__":
     print("--- 채팅 OCR ---")
     print(read_chat(frame))
     print(f"--- 획득 라인 수: {pickup_count(frame)} ---")
+
+
+EXP_KEYWORD = "경험치"
+
+
+def exp_count(img, win=None):
+    text = read_chat(img, win)
+    return sum(1 for line in text.splitlines() if EXP_KEYWORD in line)

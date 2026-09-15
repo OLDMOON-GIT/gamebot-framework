@@ -16,7 +16,7 @@ from user_gate import user_active
 
 RUNTIME = Path("/tmp/linc-bot-linux")
 STOP = RUNTIME / "stop-aden"
-NEAR_BOX_RADIUS = 220   # 줍기 시도 반경(px) — 뒤쪽 박스 포함
+NEAR_BOX_RADIUS = 450   # 줍기 반경 — 두 칸(사용자 지시 2026-09-16)
 NEAR_MOB_RADIUS = 350   # 접적(사냥 중) 판정 반경
 RETRY_GAP = 3.0
 
