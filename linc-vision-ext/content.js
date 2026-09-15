@@ -370,7 +370,7 @@
   fillKinds('st-kind1', 'v-heal1'); fillKinds('st-kind2', 'v-heal2');
   async function loadSet() {
     try { const s = await (await fetch(S + '/bot-settings')).json();
-      sel.key = s.orange_key || s.potion_key; sel.alt = s.potion_key_alt; sel.ret = s.return_key; sel.red = s.red_key || ''; sel.green = s.green_key || '';
+      sel.key = (s.main_potion && s.main_potion.key) || s.orange_key || s.potion_key; sel.alt = s.potion_key_alt; sel.ret = s.return_key; sel.red = s.red_key || ''; sel.green = s.green_key || '';
       const mp = s.main_potion || {}, cp = s.crisis_potion || {};
       sel.kind1 = mp.kind || '맑은'; sel.kind2 = cp.kind || '';
       sel.ckey = cp.key || '';
