@@ -251,7 +251,9 @@ def _hp_reader_loop():
     while True:
         try:
             cur, mx = read_hp(max_age=1.0)
-            if cur is not None:
+            # '0' 오독(2026-09-15 사용자 보고 '0퍼됐다')은 게시하지 않는다
+            # — HP 0%는 실제로 죽는 상황이라 봇이 귀환 처리한다.
+            if cur is not None and cur > 0:
                 with _lock:
                     ent = _latest.setdefault('hud', {})
                     ent['ext_hp'], ent['ext_hp_max'] = cur, mx
