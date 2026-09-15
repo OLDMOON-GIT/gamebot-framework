@@ -403,6 +403,12 @@
       setTimeout(() => $('lb-msg').textContent = '', 2200);
     } catch (e) { $('lb-msg').textContent = '저장 실패'; }
   };
+  const DEFAULT_POS = {l: '21px', t: '409px'};   // 사용자 지정 기본(2026-09-16)
+  function resetPos() {
+    try { localStorage.removeItem('lincHudPos'); } catch (_) {}
+    const p = document.getElementById('linc-bot-hud');
+    if (p) { p.style.left = DEFAULT_POS.l; p.style.top = DEFAULT_POS.t; p.style.right = 'auto'; p.style.bottom = 'auto'; }
+  }
   function anchorToGame() {
     // 사용자 지시(2026-09-15): '게임실행밑으로' — 게임 실행(비디오)
     // 아래쪽에 배치. left=게임 화면 시작 x, bottom=브라우저 맨밑.
