@@ -131,6 +131,8 @@ class PotionKeys:
         if not gained:
             gained, hp_after = self._try_key(window, second, hp)
             if gained:
+                self._first_key = second   # 학습: 성공 키 우선(스테이블)
+            if gained:
                 self._first_key = second
         if gained:
             self._dry = 0
