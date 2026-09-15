@@ -25,6 +25,22 @@ def log(msg):
     print(time.strftime("%H:%M:%S"), msg, flush=True)
 
 
+
+def detect_boxes(img):
+    """바닥 드랍 박스(상자 아이콘) 감지 — 리니지 클래식 드랍은 이름 라벨이
+    아니라 박스 형태로 떨어진다(사용자 확인 2026-09-16: 아데나/순간이동
+    주문서 등). 갈색 작은 사각형 성분."""
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    brown = cv2.inRange(hsv, (8, 90, 90), (25, 220, 220))
+    brown = cv2.morphologyEx(brown, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    n, labels, stats, cents = cv2.connectedComponentsWithStats(brown)
+    out = []
+    for i in range(1, n):
+        x, y, ww, hh, a = stats[i]
+        if 8 <= ww <= 45 and 6 <= hh <= 40 and 0.6 <= ww / max(hh, 1) <= 1.8 and a >= 60:
+            out.append((int(x + ww / 2), int(y + hh)))
+    return out
+
 def main():
     STOP.unlink(missing_ok=True)
     w = CdpWindow(port=EXT_PORT)
@@ -37,8 +53,10 @@ def main():
                 time.sleep(5)
                 continue
             img = w.capture()
-            labels = detect_labels(img, PICK_RECT)
-            if not labels:
+            boxes = detect_boxes(img)
+            near = [b for b in boxes
+                    if (b[0] - cx) ** 2 + (b[1] - cy) ** 2 <= 130 ** 2]
+            if not near:
                 fails = 0
                 time.sleep(2.0)
                 continue
