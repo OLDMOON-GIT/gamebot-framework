@@ -21,8 +21,8 @@ from linux_vision import hp_read, note_recovery
 
 
 POTION_HP = 0.80      # 사용자 지정 임계: 80% 미만이면 물약
-CONFIRM_GAP = 0.5     # 2프레임 확인 최소 간격(초)
-POTION_WAIT = 1.0     # 키 입력 후 재판독까지 대기(초) — 사망 방지 단축(2026-09-15)
+CONFIRM_GAP = 0.35    # 2프레임 확인 간격(초) — 지연 단축(2026-09-16 사용자 지시)
+POTION_WAIT = 0.6     # 키 입력 후 재판독까지 대기(초) — 지연 단축
 COOLDOWN = 3.0        # 물약 연타 방지 쿨다운(초)
 DANGER_COOLDOWN = 1.2  # 위험 구간(<0.45) 쿨다운 — 급할 때 빠르게(2026-09-15 사용자 지시)
 CHAIN_MAX = 4          # 한 턴 연속 투입 상한(피가 많이 딸리면 여러 번: 사용자 지시)

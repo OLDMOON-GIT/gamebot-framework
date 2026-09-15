@@ -124,7 +124,7 @@ class TestPotionKeys(unittest.TestCase):
         p = self._potion(lambda img: next(reread))
         self.assertEqual(self._armed(p, 0.79), USED)
         self.assertEqual(self._presses(), ["F5", "F6"])
-        self.assertEqual(p._first_key, "F5")
+        self.assertEqual(p._first_key, "F6")
 
         p._last_used -= COOLDOWN + 0.1
         self.assertEqual(p.check(self.w, 0.70), SKIP)  # 1프레임 기록
@@ -132,7 +132,7 @@ class TestPotionKeys(unittest.TestCase):
         reread2 = iter([0.95])
         with patch.object(potion_keys, "hp_read", lambda img: next(reread2)):
             self.assertEqual(p.check(self.w, 0.70), USED)
-        self.assertEqual(self._presses(), ["F6", "F5", "F5"])
+        self.assertEqual(self._presses(), ["F5", "F6", "F6"])
 
 
 if __name__ == "__main__":
