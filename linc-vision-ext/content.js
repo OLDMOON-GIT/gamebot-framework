@@ -408,7 +408,9 @@
     // 아래쪽에 배치. left=게임 화면 시작 x, bottom=브라우저 맨밑.
     const p = document.getElementById('linc-bot-hud');
     if (!p) return;
-    p.style.left = '0px';
+    const v = document.querySelector('video');
+    const vw = v ? v.getBoundingClientRect() : {left: 0, width: innerWidth};
+    p.style.left = Math.max(0, Math.round(vw.left + vw.width / 2 - p.offsetWidth / 2)) + 'px';
     p.style.bottom = '0px';
   }
 
