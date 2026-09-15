@@ -423,7 +423,7 @@
     head.style.cursor = 'move';
     head.addEventListener('mousedown', e => {
       if (e.target.id === 'lb-gear') return;
-      moving = true; p.dataset.dragging = '1'; sx = e.clientX; sy = e.clientY;
+      moving = true; sx = e.clientX; sy = e.clientY;
       const r = p.getBoundingClientRect(); ox = r.left; oy = r.top;
       p.style.right = 'auto'; p.style.bottom = 'auto';
       e.preventDefault();
@@ -434,7 +434,7 @@
       p.style.top = Math.max(0, oy + e.clientY - sy) + 'px';
     });
     window.addEventListener('mouseup', () => {
-      if (!moving) return; moving = false; delete p.dataset.dragging;
+      if (!moving) return; moving = false;
       try { localStorage.setItem('lincHudPos', JSON.stringify({l: p.style.left, t: p.style.top})); } catch (_) {}
     });
     try {
@@ -443,17 +443,7 @@
     } catch (_) {}
   }
   async function poll() {
-    try {
-      const s = JSON.parse(localStorage.getItem('lincHudPos') || 'null');
-      const p = document.getElementById('linc-bot-hud');
-      if (p && !p.dataset.dragging) {
-        const pos = s || DEFAULT_POS;
-        if (p.style.left !== pos.l || p.style.top !== pos.t) {
-          p.style.left = pos.l; p.style.top = pos.t;
-          p.style.right = 'auto'; p.style.bottom = 'auto';
-        }
-      }
-    } catch (_) {}
+    if (!localStorage.getItem('lincHudPos')) anchorToGame();
     try {
       const r = await (await fetch(S + '/hp?scale=4')).json();
       let hp = (r.hp != null && r.hp_max && r.hp > 0) ? r.hp / r.hp_max :
