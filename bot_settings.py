@@ -29,6 +29,7 @@ DEFAULTS = {
     # heal_pct = 물약 1개 회복량(최대 HP 대신 %). 종류 프리셋은
     # POTION_KINDS 참조. 실측 학습(potion_keys EMA)이 값을 수렴시킨다.
     "main_potion": {"key": "F6", "kind": "맑은", "heal_pct": 8},
+    "potion_key": "F5",        # 구 UI loadSet 필드
     "orange_key": "F5",        # 구 UI(v3 3종 그리드) 호환 — 주 물약 표시
     "red_key": "",
     "green_key": "",
