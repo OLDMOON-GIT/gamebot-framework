@@ -385,12 +385,13 @@
       let hp = (r.hp != null && r.hp_max && r.hp > 0) ? r.hp / r.hp_max :
                (r.bot && r.bot.ratio != null) ? r.bot.ratio :
                (r.ratio != null && r.ratio !== false) ? r.ratio : null;
-      if (hp != null && hp < 0.08) hp = null;  // 저값 오독 — 이전 표시 유지
+      if (hp != null && (hp < 0.15 || (window.__lbLast != null && window.__lbLast > 0.5 && hp < window.__lbLast - 0.4))) hp = null;  // 저값/급낙 오독 — 이전 표시 유지
       if (hp != null) {
         $('lb-fill').style.width = Math.round(hp * 100) + '%';
         $('lb-fill').style.background = hp < 0.45 ? 'linear-gradient(90deg,#e5484d,#ff8a8a)'
           : hp < 0.8 ? 'linear-gradient(90deg,#f5b431,#ffd76e)'
           : 'linear-gradient(90deg,#37d67a,#8ff5b3)';
+        window.__lbLast = hp;
         $('lb-txt').textContent = 'HP ' + Math.round(hp * 100) + '%';
       }
       $('lb-sub').textContent = r.bot ? ('사냥 ' + (r.bot.kills || 0) + '회 · 봇 판독') : '봇 대기 중';

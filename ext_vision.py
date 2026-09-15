@@ -253,7 +253,8 @@ def _hp_reader_loop():
             cur, mx = read_hp(max_age=1.0)
             # '0' 오독(2026-09-15 사용자 보고 '0퍼됐다')은 게시하지 않는다
             # — HP 0%는 실제로 죽는 상황이라 봇이 귀환 처리한다.
-            if cur is not None and cur > 3:   # 저값 오독도 함께 차단
+            if (cur is not None and cur > 3 and mx and cur / mx >= 0.12
+            ):   # 저값/비율 이상(12% 미만) 오독 차단
                 with _lock:
                     ent = _latest.setdefault('hud', {})
                     ent['ext_hp'], ent['ext_hp_max'] = cur, mx
