@@ -127,15 +127,20 @@ class PotionKeys:
         호출해도 가볍다."""
         s = load_settings()
         self.threshold = s["potion_start_pct"] / 100.0
-        # 물약 등급(사용자 지시 '빨갱이 주홍이 등등에 따라 다르게'):
-        # 위기(red_pct 밑)는 빨간 물약, 가벼운 구간은 초록(지정 시),
-        # 기본은 주홍. 미지정 키는 건너뛴다.
-        self._red_key = s.get("red_key") or ""
-        self._orange_key = s.get("orange_key") or s["potion_key"]
-        self._green_key = s.get("green_key") or ""
+        # 물약 슬롯(사용자 지시 2026-09-15): 키 배치 + 종류별 회복량으로
+        # 필요 개수를 계산한다. 위기(red_pct 밑)엔 crisis_potion(예: 붉은),
+        # 평상엔 main_potion(예: 맑은). 학습 회복량(_gain)이 heal_pct를
+        # 실측으로 보정한다.
+        main = s.get("main_potion") or {}
+        crisis = s.get("crisis_potion") or {}
+        self._main_key = main.get("key") or "F5"
+        self._main_gain = main.get("heal_pct", 8) / 100.0
+        self._crisis_key = crisis.get("key") or ""
+        self._crisis_gain = crisis.get("heal_pct", 0) / 100.0 or self._main_gain
+        self._main_kind = main.get("kind", "")
+        self._crisis_kind = crisis.get("kind", "")
         self._red_pct = s.get("red_pct", 45) / 100.0
-        self._green_pct = s.get("green_pct", 0) / 100.0
-        self._first_key = self._orange_key
+        self._first_key = self._main_key
         self._alt_key = s["potion_key_alt"]
         self._return_key = s["return_key"]
         self._chain_max = s["chain_max"]
@@ -194,13 +199,15 @@ class PotionKeys:
                 log(f"투입 직전 회복 확인(HP {recheck:.2f}) — 취소")
                 return SKIP
 
-        if hp < self._red_pct and self._red_key:
-            self._first_key = self._red_key       # 위기: 빨간 물약
-        elif self._green_key and self._green_pct and \
-                hp >= self._green_pct:
-            self._first_key = self._green_key     # 가벼움: 초록 물약
+        # 키/회복량 선택: 위기엔 위기 슬롯(지정 시), 아니면 주 슬롯.
+        if hp < self._red_pct and self._crisis_key:
+            self._first_key = self._crisis_key
+            self._gain = max(0.02, self._crisis_gain)
+            kind = self._crisis_kind or "?"
         else:
-            self._first_key = self._orange_key    # 기본: 주홍
+            self._first_key = self._main_key
+            self._gain = max(0.02, self._main_gain)
+            kind = self._main_kind or "?"
         second = self._alt_key
         gained, hp_after = self._try_key(window, self._first_key, hp)
         if not gained:
