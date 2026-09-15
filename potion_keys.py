@@ -15,8 +15,10 @@ BTS-1033250 실측: F6 = 물약(수량 1011→1010 확인), F5 = 빈 슬롯이�
 """
 import time
 
+from user_gate import user_active  # 테스트 patch 호환(양보 게이트는 제거됨)
+
 from linux_vision import hp_read, note_recovery
-from user_gate import user_active
+
 
 POTION_HP = 0.80      # 사용자 지정 임계: 80% 미만이면 물약
 CONFIRM_GAP = 0.5     # 2프레임 확인 최소 간격(초)
@@ -48,15 +50,11 @@ class PotionKeys:
         # (ext_vision /hp) 우선 경로를 넘긴다. None이면 기존 CDP 판독.
         self._read = read
 
-    def _yield_gate(self):
-        """사용자가 마우스를 쓰는 동안 키 입력을 양보한다."""
-        waited = 0
-        while user_active() and waited < 120:
-            time.sleep(2.0)
-            waited += 2
-
     def _press(self, window, name):
-        self._yield_gate()
+        # 물약 키(F5/F6)는 마우스와 무관한 게임 키 입력이다. 종전 양보
+        # 게이트(2026-09-15 사용자 수동 전투 중 실측)는 사용자의 마우스/
+        # 키보드 활동으로 물약을 최대 120초 미뤄 사망 위험을 만들었다.
+        # 몹 클릭(yield_click)만 양보하면 되고 물약은 즉시 발동한다.
         window.key(name, window.geometry())
 
     def _try_key(self, window, name, hp):
