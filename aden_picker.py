@@ -97,18 +97,25 @@ def main():
                     log("이동 미완 — 다시 시도")
                     time.sleep(1.5)
                     continue
-            before = pickup_count(img, w)
-            # 사용자 지시(2026-09-16): F4는 한 번만 누르지 말 것 — 여러 번.
-            # 반경에 박스가 여러 개면 연타로 순차 줍기.
+            # 획득 판정: 박스 소실(채팅 '획득' OCR은 불안정 — 실측 줍기
+            # 되는데 0 판정). F4 연타(사용자 지시: 여러 번) 후 반경 내
+            # 박스 감소 = 줍기 성공.
+            before_n = len(near)
             for _f4 in range(4):
                 w.key("F4", w.geometry())
                 time.sleep(1.0)
-            gain = max(0, pickup_count(w.capture(), w) - before)
+            img3 = w.capture()
+            c3 = find_character(img3)
+            after_n = 0
+            if c3:
+                after_n = sum(1 for b in detect_boxes(img3)
+                              if (b[0] - c3[0]) ** 2 + (b[1] - c3[1]) ** 2 <= 450 ** 2)
+            gain = max(0, before_n - after_n)
             if gain:
                 picked += gain
-                log(f"F4 줍기 획득 {gain} (누적 {picked})")
+                log(f"F4 줍기 {gain}개 (누적 {picked})")
             else:
-                log(f"F4 무반응(반경 내 {len(near)}개) — {RETRY_GAP}s 후 재시도")
+                log(f"F4 무반응(반경 내 {before_n}개) — {RETRY_GAP}s 후 재시도")
                 time.sleep(RETRY_GAP)
         except SystemExit:
             break
