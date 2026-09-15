@@ -56,7 +56,7 @@ class PotionKeys:
         self._crisis_key = ""
         self._red_pct = 0.45
         self._first_fail = 0
-        self._f5_skip = 0
+        self._enabled = True
         self._dry = 0             # 연속 무반응 턴 수
         # HP 소스 주입(BTS-1033471): onestep_hunt가 확장 네이티브 판독
         # (ext_vision /hp) 우선 경로를 넘긴다. None이면 기존 CDP 판독.
@@ -122,11 +122,14 @@ class PotionKeys:
             self._crisis_key = (s.get("crisis_potion") or {}).get("key") or ""
             self._red_pct = s.get("red_pct", 45) / 100.0
             self._alt_key = s.get("potion_key_alt") or "F6"
+            self._enabled = s.get("enabled", True)
         except Exception:
             pass
 
     def check(self, window, hp):
         self._apply_key_setting()
+        if not self._enabled:
+            return SKIP   # UI '봇 활성' off — 물약 중단(2026-09-16 사고)
         """물약이 필요하면 (2프레임 확인 후) F5/F6을 누른다.
 
         반환값: USED / SKIP / UNKNOWN / EXHAUSTED. EXHAUSTED를 받은 봇은
