@@ -55,6 +55,8 @@ class PotionKeys:
         self._alt_key = "F5"
         self._crisis_key = ""
         self._red_pct = 0.45
+        self._first_fail = 0
+        self._f5_skip = 0
         self._dry = 0             # 연속 무반응 턴 수
         # HP 소스 주입(BTS-1033471): onestep_hunt가 확장 네이티브 판독
         # (ext_vision /hp) 우선 경로를 넘긴다. None이면 기존 CDP 판독.
@@ -158,8 +160,21 @@ class PotionKeys:
                 self._first_key = self._crisis_key
             elif self._probe_next(window, hp):
                 return USED
+        # F5 소진 시 F6 사용(사용자 지시): F5가 빈 슬롯이면 헛누름이 게임
+        # 쿨을 소모해 F6마저 쿨에 막힌다(02:14 사고 — F6 있어도 '무반응').
+        # 연속 무반응 시 잠시 F6 우선으로 시작하고, 주기적으로 F5 재확인.
+        if self._first_fail >= 3:
+            self._f5_skip = 6      # 6턴간 F6 우선
+            self._first_fail = 0
+            log("주 키 연속 무반응 — 보조(F6) 우선 전환, 주기적 F5 재확인")
+        if self._f5_skip > 0:
+            self._f5_skip -= 1
+            self._first_key, second = second, self._first_key
         gained, hp_after = self._try_key(window, self._first_key, hp)
-        if not gained:
+        if gained:
+            self._first_fail = 0
+        else:
+            self._first_fail += 1
             gained, hp_after = self._try_key(window, second, hp)
             if gained:
                 self._first_key = second
