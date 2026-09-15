@@ -11,14 +11,15 @@ from pathlib import Path
 
 from cdp_window import CdpWindow, EXT_PORT
 from chat_watch import pickup_count
-from item_labels import PICK_RECT, detect_labels
-from linux_vision import find_character, hp_read, red_name_candidates
-from potion_keys import EXHAUSTED, USED, PotionKeys
+from item_labels import PICK_RECT, detect_labels, read_label_names
+from item_tiers import tier_of
+from linux_vision import find_character, red_name_candidates
 from user_gate import user_active
 
 RUNTIME = Path("/tmp/linc-bot-linux")
-STOP = RUNTIME / "stop"
-NEAR_MOB_RADIUS = 260  # 접적 판정 반경(px) — onestep와 동일 기준
+STOP = RUNTIME / "stop-aden"   # onestep과 STOP 분리(봇 교체 때 같이 죽는 간섭 방지)
+NEAR_MOB_RADIUS = 350  # 접적 판정 반경(px) — 칼질 중 줍기 금지(2026-09-15
+                        # 사용자 지시 '칼질중엔 줍지말기', 260→350 확대)
 RETRY_GAP = 3.0        # 줍기 실패 후 재시도 간격(초)
 FAIL_LIMIT = 3          # 연속 실패 상한 — 넘으면 긴 대기(드랍이 줍을 수
 LONG_WAIT = 12.0        # 없는 상태일 수 있다: 멀리/이미 꽉 참 등)
@@ -31,7 +32,8 @@ def log(msg):
 def main():
     STOP.unlink(missing_ok=True)
     w = CdpWindow(port=EXT_PORT)
-    potion = PotionKeys()
+    # 물약은 onestep 봇이 전담한다(2026-09-15 사고: aden이 같은 F5/F6를
+    # 함께 누르며 게임 쿨다운 충돌로 양쪽 다 무반응 → HP 0.51 하락).
     picked = 0
     fails = 0
     log("F4 아덴 줍기 시작")
@@ -41,34 +43,37 @@ def main():
                 time.sleep(5)
                 continue
             img = w.capture()
-            hp = hp_read(img)
-            result = potion.check(w, hp)
-            if result == EXHAUSTED:
-                log("물약 재고 소진 — 줍기 중단(보급 필요)")
-                break
-            if result == USED:
-                time.sleep(0.7)
-                continue
 
             # 사용자 지시(2026-09-15): '몬스터랑 사냥중일때말고 사냥이
             # 없을때 주서라' — 캐릭터 근처 몹(빨간 이름표)이 있으면 접적
             # 상태로 보고 줍기를 보류한다(전투 흐름 방해 차단).
             char = find_character(img)
-            if char is not None:
-                cx, cy = char[:2]
-                near_mob = any(
-                    (x - cx) ** 2 + (y - cy) ** 2 <= NEAR_MOB_RADIUS ** 2
-                    for x, y, _a, _r in red_name_candidates(img))
-                if near_mob:
-                    fails = 0
-                    time.sleep(1.0)
-                    continue
+            if char is None:
+                # 캐릭터를 못 찾으면 접적 판정 자체가 불가 — 보수적으로
+                # 줍기를 보류한다(칼질 중일 가능성을 배제 못 함).
+                time.sleep(1.0)
+                continue
+            cx, cy = char[:2]
+            mobs = [(x, y) for x, y, _a, _r in red_name_candidates(img)
+                    if (x - cx) ** 2 + (y - cy) ** 2 <= NEAR_MOB_RADIUS ** 2]
+            if mobs:
+                fails = 0
+                log(f"접적(근처 몹 {len(mobs)}) — 칼질 중 줍기 보류")
+                time.sleep(1.0)
+                continue
 
-            labels = detect_labels(img, PICK_RECT)
-            if not labels:
+            labels = read_label_names(img, detect_labels(img, PICK_RECT))
+            # 등급 판별(사용자 지시 '고급템과 저급템 판별'): 저급 잡템은
+            # 줍지 않는다. unknown은 줍는다(놓침 손해가 더 크다).
+            good = [l for l in labels if tier_of(l.name) != "low"]
+            lows = [l for l in labels if tier_of(l.name) == "low"]
+            if lows and good:
+                log(f"저급 {len(lows)}개 무시({lows[0].name!r}) · 고급 {len(good)}개")
+            if not good:
                 fails = 0
                 time.sleep(2.0)
                 continue
+            labels = good
 
             before = pickup_count(img)
             # 사용자가 마우스로 조작 중이면 키만 스킵하고 잠시 양보
