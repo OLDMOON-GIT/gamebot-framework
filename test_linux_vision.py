@@ -428,7 +428,7 @@ class TestHpDenominatorGuard(unittest.TestCase):
 
     def test_합본rect도_실패하면_None으로_게이지폭에_넘긴다(self):
         # 합본이 슬래시 0개/2개로 깨지면 채택하지 않는다(오독 주입 방지).
-        with self._ocr(["", "", "", "", "247253", "247/25/3", ""]):
+        with self._ocr(["", "", "", "", "", "247253", "247/25/3", ""]):
             self.assertIsNone(vision.hp_from_hud_digits(self.frame))
 
     def test_레벨업_분모_변경은_다음_프레임에_승인한다(self):

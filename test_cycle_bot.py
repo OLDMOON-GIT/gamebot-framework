@@ -20,6 +20,7 @@ class FakeWindow:
         os.environ["LINC_SKIP_USER_GATE"] = "1"  # 테스트는 양보 게이트 스킵
         self.clicks = []
         self.hotkeys = []
+        self.keys = []
 
     def active(self):
         return True
@@ -36,6 +37,9 @@ class FakeWindow:
 
     def hotkey(self, combo):
         self.hotkeys.append(combo)
+
+    def key(self, name, geo=None):
+        self.keys.append(name)
 
     def close(self):
         pass
