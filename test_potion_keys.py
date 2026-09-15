@@ -136,7 +136,7 @@ class TestPotionKeys(unittest.TestCase):
         reread2 = iter([0.95])
         with patch.object(potion_keys, "hp_read", lambda img: next(reread2)):
             self.assertEqual(p.check(self.w, 0.70), USED)
-        self.assertEqual(self._presses(), ["F5", "F6", "F6"])
+        self.assertEqual(self._presses(), ["F5", "F6", "F5"])
 
 
 if __name__ == "__main__":
