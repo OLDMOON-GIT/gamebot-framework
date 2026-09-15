@@ -44,13 +44,6 @@ def main():
                 time.sleep(5)
                 continue
             img = w.capture()
-            # HP 낮으면 물약 먼저 (F5/F6 공용 모듈, 재고 있는 한)
-            if result == EXHAUSTED:
-                log("물약 재고 소진 — 줍기 중단(보급 필요)")
-                break
-            if result == USED:
-                time.sleep(1.5)
-                continue
 
             now = time.time()
             blacklist = {k: t for k, t in blacklist.items() if now - t < BLACKLIST_TTL}
