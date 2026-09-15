@@ -207,12 +207,14 @@ def hp_guard(ratio):
     return ratio
 
 
-def post_bot_status(ratio, kills=None, note=None):
+def post_bot_status(ratio, kills=None, note=None, hp=None, hp_max=None):
     """봇 판독값을 ext_vision에 게시 — 크롬 익스텐션 HUD UI 데이터.
 
     실패해도 봇 동작에 영향 없음(UI 전용 채널)."""
     try:
         payload = {"ratio": ratio}
+        if hp is not None and hp_max:
+            payload["hp"], payload["hp_max"] = hp, hp_max
         if kills is not None:
             payload["kills"] = kills
         if note:

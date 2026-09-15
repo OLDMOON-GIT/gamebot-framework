@@ -275,7 +275,7 @@
           fill.style.background = hp < 0.45 ? 'linear-gradient(90deg,#ff5252,#ff8a80)'
             : hp < 0.8 ? 'linear-gradient(90deg,#ffd23f,#ffe082)'
             : 'linear-gradient(90deg,#3ddc84,#a5ffb0)';
-          txt.textContent = 'HP ' + Math.round(hp * 100) + '%' + (r.hp ? ' (' + r.hp + '/' + r.hp_max + ')' : '');
+          txt.textContent = 'HP ' + Math.round(hp * 100) + '%' + (r.bot && r.bot.hp_max ? ' (' + (r.bot.hp || '-') + '/' + r.bot.hp_max + ')' : '');
         }
         sub.textContent = r.bot ? ('사냥 ' + (r.bot.kills || 0) + '회 · 봇 판독') : '봇 대기 중';
       } catch (e) { sub.textContent = '수신 없음(ext_vision 다운?)'; }
