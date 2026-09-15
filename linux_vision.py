@@ -307,7 +307,12 @@ def hp_read(img):
     if value is not None:
         gauge = hp_from_gauge(img)
         if gauge is not None and abs(value - gauge) > HP_CROSS_GUARD:
-            value = gauge  # OCR-게이지 불일치: 게이지 쪽이 정상 경로
+            # 만피 확정(low==high)이면 OCR 신뢰 — 게이지는 만피에서 숫자가
+            # 채움을 끊어 저폭가 오독한다(2026-09-15 '100퍼인데 약빨고').
+            if abs(value - 1.0) < 0.02:
+                pass
+            else:
+                value = gauge  # 그 외 불일치: 게이지 쪽이 정상 경로
     else:
         # OCR 실패 → 게이지 폴백(위 교차검증 근거로 신뢰 회복)
         value = hp_from_gauge(img)
