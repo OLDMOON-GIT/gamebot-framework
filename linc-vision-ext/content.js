@@ -253,44 +253,51 @@
   function installHudUi() {
 
   if (window.__lincHudUiTimer) clearInterval(window.__lincHudUiTimer);
-  document.getElementById('linc-bot-hud')?.remove();
+  document.querySelectorAll('#linc-bot-hud').forEach(e => e.remove());
   const S = 'http://127.0.0.1:17311';
   const css = document.createElement('style');
   css.textContent = `
 #linc-bot-hud *{box-sizing:border-box}
-#linc-bot-hud{position:fixed;left:14px;bottom:14px;z-index:2147483647;background:linear-gradient(160deg,#181d28ee,#0c0f16ee);border:1px solid #3a465c;border-radius:16px;padding:16px 20px;color:#e8ecf4;font:15px/1.5 'Segoe UI',sans-serif;min-width:340px;box-shadow:0 8px 32px rgba(0,0,0,.65);user-select:none}
+#linc-bot-hud{position:fixed;left:14px;bottom:14px;z-index:2147483647;
+  background:linear-gradient(175deg,#16294f 0%,#0b1730 55%,#081026 100%);
+  border:2px solid #8a6a2f;border-radius:4px;padding:14px 18px 16px 26px;
+  color:#e8e0c8;font:14px/1.55 'Gulim','Malgun Gothic',sans-serif;
+  min-width:340px;box-shadow:0 0 0 1px #3a2c10,0 10px 34px rgba(0,0,0,.75),inset 0 0 22px rgba(0,10,40,.55);user-select:none}
+#linc-bot-hud::before{content:'';position:absolute;left:6px;top:8px;bottom:8px;width:5px;
+  background:linear-gradient(#e0a94f,#8a6a2f 60%,#c89b4a);border-radius:2px}
 #lb-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-#lb-title{font-weight:700;font-size:19px;letter-spacing:2px;color:#7ec8ff}
-#lb-gear{margin-left:auto;width:34px;height:34px;border-radius:9px;border:1px solid #3a465c;background:#232b3a;color:#9fb4d8;font-size:18px;cursor:pointer;transition:.15s}
-#lb-gear:hover{background:#2e3950;color:#fff}
-#lb-bar{width:100%;height:18px;background:#10131c;border-radius:9px;overflow:hidden;border:1px solid #000}
+#lb-title{font-weight:700;font-size:18px;letter-spacing:3px;color:#f0c96a;text-shadow:0 1px 2px #000}
+#lb-gear{margin-left:auto;width:32px;height:32px;border-radius:3px;border:1px solid #8a6a2f;background:#101d3a;color:#e0a94f;font-size:17px;cursor:pointer;transition:.15s}
+#lb-gear:hover{background:#1c2f5e;color:#ffe9a8}
+#lb-bar{width:100%;height:18px;background:#060d1e;border-radius:2px;overflow:hidden;border:1px solid #3a2c10}
 #lb-fill{height:100%;width:0%;border-radius:9px;background:linear-gradient(90deg,#37d67a,#8ff5b3);transition:width .3s}
 #lb-txt{font-size:24px;font-weight:700;margin-top:6px}
 #lb-sub{color:#8d9cb8;font-size:13px;margin-top:2px}
 #lb-opts{display:none;flex-direction:column;gap:12px;margin-top:12px;padding-top:14px;border-top:1px solid #2c3648}
 #linc-bot-hud.open #lb-opts{display:flex}
-.lb-sec{font-size:12px;font-weight:700;color:#7ec8ff;letter-spacing:1px;margin-bottom:-4px}
+.lb-sec{font-size:12px;font-weight:700;color:#d8b25e;letter-spacing:2px;margin-bottom:-4px;border-bottom:1px solid #3a2c10;padding-bottom:3px}
 .lb-row{display:flex;align-items:center;gap:10px}
 .lb-row label{flex:1;color:#c3cdde;font-size:14px}
 .lb-row .val{min-width:48px;text-align:right;font-weight:700;color:#fff}
-.lb-slider{flex:1.4;appearance:none;height:6px;border-radius:3px;background:#2a3346;outline:none}
-.lb-slider::-webkit-slider-thumb{appearance:none;width:18px;height:18px;border-radius:50%;background:#4da3ff;border:2px solid #fff;cursor:pointer}
+.lb-slider{flex:1.4;appearance:none;height:6px;border-radius:2px;background:#0a142c;border:1px solid #3a2c10;outline:none}
+.lb-slider::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border-radius:2px;background:#e0a94f;border:1px solid #6a5218;cursor:pointer}
 .lb-keys{display:grid;grid-template-columns:repeat(9,1fr);gap:4px}
-.lb-key{padding:6px 0;border-radius:7px;border:1px solid #3a465c;background:#232b3a;color:#9fb4d8;font:600 13px monospace;cursor:pointer;text-align:center;transition:.12s}
-.lb-key:hover{background:#2e3950}
-.lb-key.sel{background:#2f6fc4;color:#fff;border-color:#7ec8ff;box-shadow:0 0 8px #2f6fc488}
-.lb-toggle{position:relative;width:52px;height:26px;border-radius:13px;background:#2a3346;cursor:pointer;transition:.2s;flex:none}
-.lb-toggle.on{background:#2f9e5b}
+.lb-key{padding:6px 0;border-radius:3px;border:1px solid #5a4718;background:#101d3a;color:#cabb8e;font:600 13px monospace;cursor:pointer;text-align:center;transition:.12s}
+.lb-key:hover{background:#1c2f5e;border-color:#c89b4a}
+.lb-key.sel{background:#5a3f12;color:#ffe9a8;border-color:#e0a94f;box-shadow:0 0 7px #c89b4a99}
+.lb-toggle{position:relative;width:52px;height:24px;border-radius:3px;background:#0a142c;border:1px solid #5a4718;cursor:pointer;transition:.2s;flex:none}
+.lb-toggle.on{background:#7a5a18}
 .lb-toggle::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.2s}
 .lb-toggle.on::after{left:29px}
 #lb-stepper{display:flex;align-items:center;gap:8px}
 #lb-stepper button{width:30px;height:30px;border-radius:8px;border:1px solid #3a465c;background:#232b3a;color:#fff;font-size:17px;cursor:pointer}
-#lb-save{margin-top:4px;padding:10px;border:0;border-radius:10px;background:linear-gradient(160deg,#2f6fc4,#2456a0);color:#fff;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:1px}
-#lb-save:hover{filter:brightness(1.12)}
+#lb-save{margin-top:4px;padding:10px;border:1px solid #e0a94f;border-radius:3px;background:linear-gradient(#3a2c10,#241a06);color:#ffe9a8;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:6px}
+#lb-save:hover{background:linear-gradient(#5a3f12,#3a2c10)}
 #lb-msg{text-align:center;font-size:13px;color:#69d98d;min-height:16px}`;
   document.head.appendChild(css);
   const panel = document.createElement('div');
   panel.id = 'linc-bot-hud';
+  panel.classList.add('open');
   panel.innerHTML = `
 <div id="lb-head"><span id="lb-title">LINC BOT</span><button id="lb-gear" title="설정">⚙</button></div>
 <div id="lb-bar"><div id="lb-fill"></div></div>
@@ -298,8 +305,10 @@
 <div id="lb-sub">초기화...</div>
 <div id="lb-opts">
   <div class="lb-sec">🧪 물약</div>
-  <div class="lb-row"><label>물약 키</label></div>
+  <div class="lb-row"><label>주 물약</label><select id="st-kind1" style="font-size:13px;padding:2px 6px;background:#101d3a;color:#ffe9a8;border:1px solid #8a6a2f"></select><span class="val" id="v-heal1">+8%</span></div>
   <div class="lb-keys" id="lb-key1"></div>
+  <div class="lb-row" style="margin-top:6px"><label>위기 물약(&lt;45%)</label><select id="st-kind2" style="font-size:13px;padding:2px 6px;background:#101d3a;color:#ffe9a8;border:1px solid #8a6a2f"></select><span class="val" id="v-heal2">-</span></div>
+  <div class="lb-keys" id="lb-key2"></div>
   <div class="lb-row" style="margin-top:6px"><label>보조 키</label></div>
   <div class="lb-keys" id="lb-key2"></div>
   <div class="lb-row"><label>시작</label><input class="lb-slider" id="st-start" type="range" min="10" max="95"><span class="val" id="v-start">80%</span></div>
@@ -316,8 +325,30 @@
 </div>`;
   document.body.appendChild(panel);
   const $ = id => document.getElementById(id);
+  const KINDS = {'초록':6,'맑은':8,'주홍':12,'붉은':18,'진홍':24};
+  function fillKinds(id, healId) {
+    const el = $(id); el.innerHTML = '<option value="">-</option>' +
+      Object.keys(KINDS).map(k => `<option value="${k}">${k}</option>`).join('');
+    el.onchange = () => { $(healId).textContent = el.value ? '+' + KINDS[el.value] + '%' : '-'; };
+  }
   const KEYS = [...Array(9)].map((_, i) => 'F' + (i + 1));
-  const sel = { key: 'F6', alt: 'F5', ret: 'F8' };
+  const sel = { key: 'F6', alt: 'F5', ret: 'F8', red: '', green: '' };
+
+  function gridX(elId, prop) {
+    const el = $(elId);
+    const none = document.createElement('div');
+    none.className = 'lb-key' + (sel[prop] === '' ? ' sel' : '');
+    none.textContent = ' - ';
+    none.onclick = () => { sel[prop] = ''; el.querySelectorAll('.lb-key').forEach(x => x.classList.toggle('sel', x === none)); };
+    el.appendChild(none);
+    KEYS.forEach(k => {
+      const b = document.createElement('div');
+      b.className = 'lb-key' + (sel[prop] === k ? ' sel' : '');
+      b.textContent = k;
+      b.onclick = () => { sel[prop] = k; el.querySelectorAll('.lb-key').forEach(x => x.classList.toggle('sel', x === b)); };
+      el.appendChild(b);
+    });
+  }
   function grid(elId, prop) {
     const el = $(elId);
     el.innerHTML = KEYS.map(k => `<div class="lb-key${sel[prop]===k?' sel':''}" data-k="${k}">${k}</div>`).join('');
@@ -336,10 +367,19 @@
   let on = true;
   $('st-on').onclick = () => { on = !on; $('st-on').classList.toggle('on', on); };
   $('lb-gear').onclick = () => panel.classList.toggle('open');
+  fillKinds('st-kind1', 'v-heal1'); fillKinds('st-kind2', 'v-heal2');
   async function loadSet() {
     try { const s = await (await fetch(S + '/bot-settings')).json();
-      sel.key = s.potion_key; sel.alt = s.potion_key_alt; sel.ret = s.return_key;
-      grid('lb-key1', 'key'); grid('lb-key2', 'alt'); grid('lb-key3', 'ret');
+      sel.key = s.orange_key || s.potion_key; sel.alt = s.potion_key_alt; sel.ret = s.return_key; sel.red = s.red_key || ''; sel.green = s.green_key || '';
+      const mp = s.main_potion || {}, cp = s.crisis_potion || {};
+      sel.kind1 = mp.kind || '맑은'; sel.kind2 = cp.kind || '';
+      sel.ckey = cp.key || '';
+      $('st-kind1').value = sel.kind1; $('st-kind2').value = sel.kind2;
+      $('v-heal1').textContent = '+' + (mp.heal_pct || 8) + '%';
+      $('v-heal2').textContent = sel.kind2 ? '+' + (cp.heal_pct || 12) + '%' : '-';
+      const csel = document.querySelector('#lb-key2 .lb-key.sel');
+      if (sel.ckey && !csel) { document.querySelectorAll('#lb-key2 .lb-key').forEach(x => { if (x.textContent === sel.ckey) x.classList.add('sel'); }); }
+      grid('lb-key1', 'key'); grid('lb-key2', 'alt'); grid('lb-key3', 'ret'); gridX('lb-keyr', 'red'); gridX('lb-keyg', 'green');
       $('st-start').value = s.potion_start_pct; $('v-start').textContent = s.potion_start_pct + '%';
       $('st-goal').value = s.recover_to_pct; $('v-goal').textContent = s.recover_to_pct + '%';
       $('st-danger').value = s.danger_pct; $('v-danger').textContent = s.danger_pct + '%';
@@ -349,7 +389,12 @@
   }
   $('lb-save').onclick = async () => {
     try {
-      const body = { potion_key: sel.key, potion_key_alt: sel.alt, return_key: sel.ret,
+      const heal1 = KINDS[$('st-kind1').value] || 8;
+      const heal2 = KINDS[$('st-kind2').value] || 0;
+      const ckey = document.querySelector('#lb-key2 .lb-key.sel')?.textContent || '';
+      const body = { main_potion: {key: sel.key, kind: $('st-kind1').value, heal_pct: heal1},
+        crisis_potion: {key: ckey, kind: $('st-kind2').value, heal_pct: heal2},
+        potion_key: sel.key, potion_key_alt: sel.alt, return_key: sel.ret,
         potion_start_pct: +$('st-start').value, recover_to_pct: +$('st-goal').value,
         danger_pct: +$('st-danger').value, chain_max: chain, enabled: on };
       await fetch(S + '/bot-settings', { method: 'POST',
@@ -361,20 +406,22 @@
   async function poll() {
     try {
       const r = await (await fetch(S + '/hp?scale=4')).json();
-      const hp = (r.bot && r.bot.ratio != null) ? r.bot.ratio :
-                 (r.ratio != null && r.ratio !== false) ? r.ratio :
-                 (r.hp != null && r.hp_max ? r.hp / r.hp_max : null);
+      let hp = (r.hp != null && r.hp_max && r.hp > 0) ? r.hp / r.hp_max :
+               (r.bot && r.bot.ratio != null) ? r.bot.ratio :
+               (r.ratio != null && r.ratio !== false) ? r.ratio : null;
+      if (hp != null && (hp < 0.15 || (window.__lbLast != null && window.__lbLast > 0.5 && hp < window.__lbLast - 0.4))) hp = null;  // 저값/급낙 오독 — 이전 표시 유지
       if (hp != null) {
         $('lb-fill').style.width = Math.round(hp * 100) + '%';
         $('lb-fill').style.background = hp < 0.45 ? 'linear-gradient(90deg,#e5484d,#ff8a8a)'
           : hp < 0.8 ? 'linear-gradient(90deg,#f5b431,#ffd76e)'
           : 'linear-gradient(90deg,#37d67a,#8ff5b3)';
+        window.__lbLast = hp;
         $('lb-txt').textContent = 'HP ' + Math.round(hp * 100) + '%';
       }
       $('lb-sub').textContent = r.bot ? ('사냥 ' + (r.bot.kills || 0) + '회 · 봇 판독') : '봇 대기 중';
     } catch (e) { $('lb-sub').textContent = '수신 없음'; }
   }
-  window.__lincHudUiTimer = setInterval(poll, 500);
+  window.__lincHudUiTimer = setInterval(poll, 50);
   poll(); loadSet();
   return 'ui-v3';
 }
