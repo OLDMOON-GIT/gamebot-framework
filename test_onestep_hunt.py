@@ -111,12 +111,45 @@ class ExtHpSourceTests(unittest.TestCase):
     def test_네트워크_실패는_none(self):
         self.assertIsNone(self._probe(None, raises=True))
 
-    def test_read는_비율_반환(self):
+    def test_read는_확장_ratio_우선(self):
         src = oh.ExtHpSource(url="http://x/hp")
-        with patch.object(src, "probe", return_value=(213, 253)):
+        with patch.object(src, "_fetch", return_value={"ratio": 0.84}):
+            self.assertAlmostEqual(src.read(), 0.84)
+        with patch.object(src, "_fetch", return_value={"hp": 213, "hp_max": 253}):
             self.assertAlmostEqual(src.read(), 213 / 253)
-        with patch.object(src, "probe", return_value=None):
+        with patch.object(src, "_fetch", return_value=None):
             self.assertIsNone(src.read())
+
+    def test_read는_가드없는_원시값(self):
+        # 가드는 read_hp_source의 hp_guard로 경로 통합 — 이중 상태 어긋남
+        # 방지. read 자체는 원시값을 돌려준다.
+        src = oh.ExtHpSource(url="http://x/hp")
+        with patch.object(src, "_fetch", return_value={"ratio": 0.94}):
+            self.assertAlmostEqual(src.read(), 0.94)
+        with patch.object(src, "_fetch", return_value={"ratio": 0.09}):
+            self.assertAlmostEqual(src.read(), 0.09)
+
+    def test_hp_guard_오독_유저보_오염_없이(self):
+        # '223'→'23' 오독(0.09) 첫 프레임은 직전값 유보(prev 오염 없음),
+        # 다음 정상값은 그대로 통과된다(2차 사고: 오독이 prev를 덮어써
+        # 한 프레임 늦게 노출되던 결함 차단).
+        oh._HP_GUARD["last"] = None
+        oh._HP_GUARD["streak"] = 0
+        self.assertAlmostEqual(oh.hp_guard(0.94), 0.94)
+        self.assertAlmostEqual(oh.hp_guard(0.09), 0.94)   # 유보
+        self.assertAlmostEqual(oh.hp_guard(0.85), 0.85)   # 정상 통과(오염 없음)
+        self.assertIsNone(oh.hp_guard(None))
+        oh._HP_GUARD["last"] = None
+        oh._HP_GUARD["streak"] = 0
+
+    def test_hp_guard_진짜_급변은_연속2회_승인(self):
+        oh._HP_GUARD["last"] = None
+        oh._HP_GUARD["streak"] = 0
+        self.assertAlmostEqual(oh.hp_guard(0.94), 0.94)
+        self.assertAlmostEqual(oh.hp_guard(0.30), 0.94)   # 첫 급락 유보
+        self.assertAlmostEqual(oh.hp_guard(0.28), 0.28)   # 연속 → 승인
+        oh._HP_GUARD["last"] = None
+        oh._HP_GUARD["streak"] = 0
 
 
 class CalibrateHudTests(unittest.TestCase):

@@ -97,11 +97,6 @@ class ExtHpSource:
     def __init__(self, url=EXT_HP_URL, timeout=1.5):
         self.url = url
         self.timeout = timeout
-        # 급변 가드 상태(2026-09-15 사고): 확장 OCR이 '223'을 '23'으로
-        # 읽어 0.09로 오판 → 봇이 'HP 위험 이탈' 클릭을 한 사고. CDP
-        # hp_read의 급락 가드(HP_DROP_GUARD=0.30, 한 프레임 유보 후 다음
-        # 프레임에도 같은 값이면 승인)와 동일 철학을 이 소스에도 건다.
-        self._last_ratio = None
 
     def _fetch(self):
         try:
@@ -123,25 +118,19 @@ class ExtHpSource:
             return None
         return cur, mx
 
-    def _guard(self, ratio):
-        """급락/급상승 한 프레임 유보 — 진짜 급변은 다음 프레임에 승인."""
-        prev = self._last_ratio
-        self._last_ratio = ratio
-        if prev is not None and abs(ratio - prev) > 0.30:
-            return prev
-        return ratio
-
     def read(self):
-        """HP 비율. 확장 게이지 판독값(ratio) 우선, 숫자 OCR 폴백."""
+        """HP 비율(가드 없는 원시값). 확장 게이지 판독값(ratio) 우선, 숫자
+        OCR 폴백. 급변 가드는 read_hp_source의 hp_guard로 경로 통합 —
+        이중 상태가 서로 어긋나면 오독이 유보를 뚫는다(2차 사고)."""
         payload = self._fetch()
         if payload is None:
             return None
         ratio = payload.get("ratio")
         if isinstance(ratio, (int, float)) and 0.0 <= ratio <= 1.0:
-            return self._guard(float(ratio))
+            return float(ratio)
         cur, mx = payload.get("hp"), payload.get("hp_max")
         if isinstance(cur, int) and isinstance(mx, int) and 0 < mx and 0 <= cur <= mx:
-            return self._guard(cur / mx)
+            return cur / mx
         return None
 
 
@@ -187,6 +176,36 @@ def calibrate_cdp(w, need=3, tries=8, delay=2.5):
     return None
 
 
+_HP_GUARD = {"last": None, "streak": 0}
+
+
+def hp_guard(ratio):
+    """경로 통합 HP 급변 가드(2026-09-15 2차 사고).
+
+    확장(ExtHpSource)으로 읽다가 CDP hp_read로 폴백하는 순간, CDP 쪽
+    가드의 prev(_LAST_HP)가 갱신된 적이 없어 무방비로 오독값이 통과했다
+    ('223'→'23' 0.11 오판 → 이탈 클릭). 판독 경로와 무관하게 '최종 채택값'
+    기준으로 유보한다.
+
+    streak 방식: 직전 채택값 대비 급변(±0.30)은 첫 프레임 유보(prev 유지
+    — 오독이 prev를 오염시키지 않는다), 같은 방향이 연속 2회면 진짜
+    급변으로 승인한다(한 루프 지연).
+    """
+    if ratio is None:
+        return None
+    prev = _HP_GUARD["last"]
+    if prev is not None and abs(ratio - prev) > 0.30:
+        _HP_GUARD["streak"] += 1
+        if _HP_GUARD["streak"] >= 2:
+            _HP_GUARD["last"] = ratio
+            _HP_GUARD["streak"] = 0
+            return ratio
+        return prev
+    _HP_GUARD["last"] = ratio
+    _HP_GUARD["streak"] = 0
+    return ratio
+
+
 def main():
     STOP.unlink(missing_ok=True)
     w = CdpWindow(port=EXT_PORT)
@@ -203,9 +222,12 @@ def main():
         log(f"HUD 확보: HP {base[0]}/{base[1]} — 사냥 시작")
 
     def read_hp_source(window):
-        """HP 소스: 확장 네이티브 우선, CDP hp_read 폴백(BTS-1033471)."""
+        """HP 소스: 확장 네이티브 우선, CDP hp_read 폴백(BTS-1033471).
+        최종값은 hp_guard(경로 통합 급변 가드)를 통과한다."""
         ratio = ext_hp.read()
-        return ratio if ratio is not None else hp_read(window.capture())
+        if ratio is None:
+            ratio = hp_read(window.capture())
+        return hp_guard(ratio)
 
     log("한 칸 거리 사냥 시작(이동 없음, 근접 몹만)")
     kills = 0
