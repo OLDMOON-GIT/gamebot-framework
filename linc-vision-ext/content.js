@@ -291,6 +291,7 @@
   document.head.appendChild(css);
   const panel = document.createElement('div');
   panel.id = 'linc-bot-hud';
+  panel.classList.add('open');
   panel.innerHTML = `
 <div id="lb-head"><span id="lb-title">LINC BOT</span><button id="lb-gear" title="설정">⚙</button></div>
 <div id="lb-bar"><div id="lb-fill"></div></div>
