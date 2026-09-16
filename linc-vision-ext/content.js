@@ -261,7 +261,7 @@
     const KIND_ORDER = ['맑은', '주홍', '빨간'];
     const KINDS = { '맑은': 30, '주홍': 20, '빨간': 6 };
     const KEYS = ['F1','F2','F3','F4','F5','F6','F7','F8','F9'];
-    const sel = { key: 'F5', crisis: '', alt: 'F6', ret: 'F8' };
+    const sel = { key: 'F5', alt: 'F6', ret: 'F8' };
     let on = true;
 
     const css = document.createElement('style');
@@ -318,10 +318,8 @@
   <div class="lb-row"><label>주 물약</label>
     <select id="st-kind-main"></select><span class="val" id="v-heal-main">+30%</span></div>
   <div class="lb-keys" id="lb-key-main"></div>
-  <div class="lb-row"><label>위기 물약</label>
-    <select id="st-kind-crisis"></select><span class="val" id="v-heal-crisis">-</span></div>
-  <div class="lb-keys" id="lb-key-crisis"></div>
-  <div class="lb-row"><label>보조 키</label></div>
+  <div class="lb-row"><label>보조 물약</label>
+    <select id="st-kind-alt"></select><span class="val" id="v-heal-alt">+6%</span></div>
   <div class="lb-keys" id="lb-key-alt"></div>
   <div class="lb-row"><label>시작</label>
     <input id="st-start" type="number" min="10" max="95" value="80"><span class="val">%</span></div>
@@ -368,8 +366,7 @@
     }
     function paintAllGrids() {
       paintGrid('lb-key-main', 'key', false);
-      paintGrid('lb-key-crisis', 'crisis', true);
-      paintGrid('lb-key-alt', 'alt', false);
+      paintGrid('lb-key-alt', 'alt', true);
       paintGrid('lb-key-return', 'ret', false);
     }
     function inViewport(left, top, w, h) {
@@ -446,10 +443,11 @@
     }
 
     fillKinds('st-kind-main', false);
-    fillKinds('st-kind-crisis', true);
+    fillKinds('st-kind-alt', true);
     $('st-kind-main').value = '맑은';
+    $('st-kind-alt').value = '빨간';
     $('st-kind-main').onchange = () => { $('v-heal-main').textContent = healText($('st-kind-main').value); };
-    $('st-kind-crisis').onchange = () => { $('v-heal-crisis').textContent = healText($('st-kind-crisis').value); };
+    $('st-kind-alt').onchange = () => { $('v-heal-alt').textContent = healText($('st-kind-alt').value); };
     paintAllGrids();
     $('st-on').onclick = () => { on = !on; $('st-on').classList.toggle('on', on); };
     $('lb-gear').onclick = () => panel.classList.toggle('open');
@@ -459,17 +457,16 @@
       try {
         const s = await (await fetch(S + '/bot-settings')).json();
         const mp = s.main_potion || {};
-        const cp = s.crisis_potion || {};
+        const bp = s.backup_potion || s.crisis_potion || {};
         sel.key = mp.key || s.potion_key || sel.key;
-        sel.crisis = cp.key || '';
-        sel.alt = s.potion_key_alt || sel.alt;
+        sel.alt = bp.key || s.potion_key_alt || sel.alt;
         sel.ret = s.return_key || sel.ret;
         const kMain = KIND_ORDER.includes(mp.kind) ? mp.kind : '맑은';
-        const kCrisis = KIND_ORDER.includes(cp.kind) ? cp.kind : '';
+        const kAlt = KIND_ORDER.includes(bp.kind) ? bp.kind : '빨간';
         $('st-kind-main').value = kMain;
-        $('st-kind-crisis').value = kCrisis;
+        $('st-kind-alt').value = kAlt;
         $('v-heal-main').textContent = healText(kMain);
-        $('v-heal-crisis').textContent = healText(kCrisis);
+        $('v-heal-alt').textContent = healText(kAlt);
         $('st-start').value = s.potion_start_pct != null ? s.potion_start_pct : 80;
         $('st-goal').value = s.recover_to_pct != null ? s.recover_to_pct : 80;
         $('st-danger').value = s.danger_pct != null ? s.danger_pct : 20;
@@ -483,10 +480,11 @@
     }
     $('lb-save').onclick = async () => {
       const kMain = $('st-kind-main').value || '맑은';
-      const kCrisis = $('st-kind-crisis').value || '';
+      const kAlt = $('st-kind-alt').value || '빨간';
       const body = {
         main_potion: { key: sel.key, kind: kMain, heal_pct: KINDS[kMain] || 30 },
-        crisis_potion: { key: sel.crisis, kind: kCrisis, heal_pct: KINDS[kCrisis] || 0 },
+        backup_potion: { key: sel.alt, kind: kAlt, heal_pct: KINDS[kAlt] || 6 },
+        crisis_potion: { key: sel.alt, kind: kAlt, heal_pct: KINDS[kAlt] || 6 },
         potion_key: sel.key,
         orange_key: sel.key,
         potion_key_alt: sel.alt,

@@ -22,8 +22,9 @@ def test_구버전_죽은_참조가_없다():
 
 
 def test_키그리드_id가_역할별로_분리된다():
-    for i in ("lb-key-main", "lb-key-crisis", "lb-key-alt", "lb-key-return"):
+    for i in ("lb-key-main", "lb-key-alt", "lb-key-return"):
         assert i in SRC, i
+    assert "lb-key-crisis" not in SRC
 
 
 def test_물약_종류가_파이썬_프리셋과_같다():

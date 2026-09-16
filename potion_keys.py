@@ -158,11 +158,7 @@ class PotionKeys:
         # 주홍 26~68, 맑은/엔트열매 44~107(평균 75). 보조 물약=맑은 계열
         # 확정 기준 **+28%p(≈71 HP)** — 주홍 최대 68과 분리.
         second = self._alt_key
-        if hp < self._red_pct:
-            if self._backup_key:
-                self._first_key = self._backup_key
-            elif self._probe_next(window, hp):
-                return USED
+        # 보조물약: F5 소진 시 F6으로(사용자 지시 2026-09-16) — HP 45% 조건 없음
         # 사용자 지시(2026-09-16): 무조건 F5부터 — 매 턴 F5 우선, 무반응인
         # 그 턴만 F6 폴백. F5 재고가 있으면 항상 F5가 먼저 발사된다.
         gained, hp_after = self._try_key(window, self._first_key, hp)
