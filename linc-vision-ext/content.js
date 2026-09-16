@@ -30,7 +30,8 @@
     };
   }
 
-  const HUD_INTERVAL_MS = 100;   // HP 감시는 촘촘히 (10fps)
+  const HUD_INTERVAL_MS = 50;    // HP 동기화 50ms (사용자 지시)
+  const HUD_PNG_INTERVAL_MS = 200; // OCR 폴백용 PNG는 덜 자주
   const FULL_INTERVAL_MS = 250;  // 몹 탐색용 전체 프레임 (4fps)
   const FULL_JPEG_QUALITY = 0.85; // q85 미만은 OCR 오독 위험 구간
 
@@ -110,8 +111,8 @@
   let hudCanvas = null, hudCtx = null;
   let fullCanvas = null, fullCtx = null;
 
-  let hudBusy = false, fullBusy = false;
-  let lastHud = 0, lastFull = 0;
+  let hudBusy = false, fullBusy = false, ratioBusy = false, pngBusy = false;
+  let lastHud = 0, lastFull = 0, lastPng = 0;
 
   // 서버가 죽어 있을 때 콘솔/네트워크를 도배하지 않도록 백오프
   let failStreak = 0;
@@ -160,19 +161,35 @@
   async function sendHud(v) {
     if (hudBusy) return;
     hudBusy = true;
+    let hpRatio = null;
     try {
       const HUD = hudRect(v);
       hudCanvas = ensureCanvas(hudCanvas, HUD.w, HUD.h);
       if (!hudCtx) hudCtx = hudCanvas.getContext('2d', { willReadFrequently: true });
-      // 네이티브 좌표에서 HUD 영역만 잘라 1:1로 그린다 (확대/축소 금지)
       hudCtx.drawImage(v, HUD.x, HUD.y, HUD.w, HUD.h, 0, 0, HUD.w, HUD.h);
-      // 확장 안 판독(BTS-1033474): 게이지 채움 폭으로 HP 비율을 이 자리에서
-      // 계산해 함께 보낸다. 파이썬 OCR은 이 값이 없을 때만 폴백으로 쓴다.
-      let hpRatio = null;
       try { hpRatio = hpRatioFromStrip(hudCtx, HUD.w, HUD.h); }
       catch (e) { /* 판독 실패는 헤더 생략로 폴백 */ }
+      if (hpRatio !== null && Number.isFinite(hpRatio) && !ratioBusy) {
+        ratioBusy = true;
+        fetch(SERVER + '/ext-ratio', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ratio: hpRatio, ts: Date.now() }),
+        }).catch(() => {}).finally(() => { ratioBusy = false; });
+      }
+    } catch (e) {
+      if (failStreak === 0) log('HUD 캡처 실패', e.message);
+    } finally {
+      hudBusy = false;
+    }
+    const now = performance.now();
+    if (pngBusy || now - lastPng < HUD_PNG_INTERVAL_MS) return;
+    lastPng = now;
+    pngBusy = true;
+    try {
       const blob = await blobOf(hudCanvas, 'image/png');
       if (blob) {
+        const HUD = hudRect(v);
         const headers = {
           'Content-Type': 'image/png',
           'X-Origin-X': String(HUD.x),
@@ -187,10 +204,9 @@
         await post('/hud', blob, headers);
       }
     } catch (e) {
-      // 캔버스 오염(CORS) 등은 한 번만 알린다
-      if (failStreak === 0) log('HUD 캡처 실패', e.message);
+      if (failStreak === 0) log('HUD PNG 전송 실패', e.message);
     } finally {
-      hudBusy = false;
+      pngBusy = false;
     }
   }
 
@@ -978,13 +994,16 @@
         setTimeout(() => { $('lh-msg').textContent = ''; }, 2000);
       } catch (e) { $('lh-msg').textContent = '저장 실패'; }
     };
+    let pollBusy = false;
     async function poll() {
+      if (pollBusy) return;
+      pollBusy = true;
       try {
-        const r = await (await fetch(S + '/hp?scale=4')).json();
+        const r = await (await fetch(S + '/hp')).json();
         let hp = null;
-        if (r.hp != null && r.hp_max) hp = r.hp / r.hp_max;
+        if (typeof r.ratio === 'number') hp = r.ratio;
         else if (r.bot && r.bot.ratio != null) hp = r.bot.ratio;
-        else if (typeof r.ratio === 'number') hp = r.ratio;
+        else if (r.hp != null && r.hp_max) hp = r.hp / r.hp_max;
         if (hp != null && Number.isFinite(hp)) {
           hp = Math.max(0, Math.min(1, hp));
           $('lh-fill').style.width = Math.round(hp * 100) + '%';
@@ -1013,11 +1032,13 @@
       } catch (e) {
         $('lh-sub').textContent = '수신 없음';
         $('lh-warn').textContent = '⚠ 게임창 없음';
+      } finally {
+        pollBusy = false;
       }
     }
 
     window.__lincHudMountTimer = setInterval(mountHud, 2500);
-    window.__lincHudUiTimer = setInterval(poll, 400);
+    window.__lincHudUiTimer = setInterval(poll, 50);
     poll();
     loadSet();
     return 'linc-hud-v1';

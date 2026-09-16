@@ -167,25 +167,34 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if self.path.startswith('/hp'):
-            try:
-                q = self.path.split('?', 1)[1] if '?' in self.path else ''
-                scale = 3
-                for kv in q.split('&'):
-                    if kv.startswith('scale='):
-                        scale = max(1, min(10, int(kv[6:])))
-                hp, hp_max = read_hp(max_age=2.0, scale=scale)
-            except Exception:
-                hp, hp_max = None, None
-            # 확장 게이지 판독값(BTS-1033474): 있으면 이쪽이 우선이다.
-            ratio = read_ext_ratio(max_age=1.0)
-            # 봇 게시값(CDP 화면 판독 — 검증된 안정 경로): UI 표시 우선.
+            q = self.path.split('?', 1)[1] if '?' in self.path else ''
+            want_ocr = 'ocr=1' in q
+            scale = 3
+            for kv in q.split('&'):
+                if kv.startswith('scale='):
+                    scale = max(1, min(10, int(kv[6:])))
+                    want_ocr = True
+            # 게이지 ratio가 신선하면 OCR을 건너뛴다(실측 /hp?scale=4 = 190ms).
+            ratio = read_ext_ratio(max_age=0.25)
+            ratio_ts = 0.0
+            with _lock:
+                ent = _latest.get('hud') or {}
+                ratio_ts = float(ent.get('hp_ratio_ts') or 0)
+            hp, hp_max = None, None
+            if want_ocr or ratio is None:
+                try:
+                    hp, hp_max = read_hp(max_age=2.0, scale=scale)
+                except Exception:
+                    hp, hp_max = None, None
             bot = None
             with _lock:
                 ent = _latest.get('bot')
                 if ent and time.time() - ent.get('ts', 0) <= 10.0:
                     bot = dict(ent)
-            if bot is not None:
-                ratio = bot.get('ratio', ratio)
+            # 봇 값은 게이지보다 새로울 때만 덮는다(사냥 루프 0.35s+가 신선한 게이지를 밀지 않게).
+            if bot is not None and bot.get('ratio') is not None:
+                if ratio is None or float(bot.get('ts') or 0) >= ratio_ts:
+                    ratio = bot.get('ratio')
             body = json.dumps(
                 {"hp": hp, "hp_max": hp_max, "ratio": ratio,
                  "bot": bot}).encode('utf-8')
