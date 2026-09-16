@@ -440,7 +440,7 @@
     } catch (_) {}
   }
   async function poll() {
-    if (!localStorage.getItem('lincHudPos')) anchorToGame();
+    
     try {
       const r = await (await fetch(S + '/hp?scale=4')).json();
       let hp = (r.hp != null && r.hp_max && r.hp > 0) ? r.hp / r.hp_max :
