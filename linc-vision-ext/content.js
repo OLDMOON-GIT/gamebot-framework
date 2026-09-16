@@ -252,7 +252,9 @@
   function installHudUi() {
     if (window.__lincHudUiTimer) clearInterval(window.__lincHudUiTimer);
     document.querySelectorAll('#linc-bot-hud').forEach(e => e.remove());
-    document.querySelectorAll('#linc-bot-hud-css').forEach(e => e.remove());
+    document.querySelectorAll('style').forEach(e => {
+      if (e.id === 'linc-bot-hud-css' || (e.textContent && e.textContent.indexOf('#linc-bot-hud') >= 0)) e.remove();
+    });
 
     const S = 'http://127.0.0.1:17311';
     // bot_settings.POTION_KINDS 와 동일. 등급: 맑은 > 주홍 > 빨간.
@@ -374,27 +376,42 @@
       return left >= 0 && top >= 0 && left < innerWidth - 80 && top < innerHeight - 80
         && top + Math.min(h, 80) > 0;
     }
+    function gamePaneLeft() {
+      const v = document.querySelector('video');
+      if (v) {
+        const r = v.getBoundingClientRect();
+        if (r.width > 100 && r.height > 100) return Math.max(0, Math.round(r.left));
+      }
+      const aside = document.querySelector('aside');
+      if (aside) {
+        const r = aside.getBoundingClientRect();
+        if (r.width > 80 && r.width < innerWidth * 0.5) return Math.round(r.right);
+      }
+      return 0;
+    }
     function placeDefault() {
       panel.style.top = 'auto';
       panel.style.right = 'auto';
       panel.style.bottom = '0px';
-      panel.style.left = '0px';
+      panel.style.left = gamePaneLeft() + 'px';
       const v = document.querySelector('video');
-      if (v && v.getBoundingClientRect) {
+      if (v) {
         const r = v.getBoundingClientRect();
         if (r.width > 100 && r.height > 100) {
-          panel.style.left = Math.max(0, Math.round(r.left)) + 'px';
           panel.style.bottom = Math.max(0, Math.round(innerHeight - r.bottom)) + 'px';
         }
       }
     }
     function applySavedPos() {
       placeDefault();
+      const pane = gamePaneLeft();
       try {
         const saved = JSON.parse(localStorage.getItem('lincHudPos') || 'null');
         if (!saved || saved.l == null || saved.t == null) return;
         const left = parseInt(saved.l, 10), top = parseInt(saved.t, 10);
-        if (!Number.isFinite(left) || !Number.isFinite(top) || !inViewport(left, top, 420, 80)) {
+        // 사이드바에 저장된 좌표는 이전 GLM 버그값 — 버린다.
+        if (!Number.isFinite(left) || !Number.isFinite(top)
+            || left < pane - 1 || !inViewport(left, top, 420, 80)) {
           localStorage.removeItem('lincHudPos');
           return;
         }

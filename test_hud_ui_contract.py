@@ -35,9 +35,11 @@ def test_물약_종류가_파이썬_프리셋과_같다():
     assert js == bot_settings.POTION_KINDS, (js, bot_settings.POTION_KINDS)
 
 
-def test_기본_위치가_왼쪽_하단이다():
+def test_기본_위치가_게임창_왼쪽_하단이다():
     assert "bottom:0" in SRC or "bottom: 0" in SRC
     assert "max-height:82vh" in SRC or "max-height: 82vh" in SRC
+    assert "function gamePaneLeft()" in SRC
+    assert "document.querySelector('aside')" in SRC
 
 
 def test_맑은_기본_heal_pct_가_최강값이다():
