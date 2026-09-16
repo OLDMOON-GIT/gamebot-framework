@@ -259,17 +259,17 @@
   css.textContent = `
 #linc-bot-hud *{box-sizing:border-box}
 #linc-bot-hud{position:fixed;z-index:2147483647;
-  background:#0d1117f2;
-  border:1px solid #3a465c;border-radius:12px;padding:8px 14px 10px 14px;
+  background:linear-gradient(160deg,#181d28ee,#0c0f16ee);
+  border:1px solid #3a465c;border-radius:0 10px 0 0;padding:10px 16px 12px 16px;
   color:#e8ecf4;font:20px/1.5 'Segoe UI',sans-serif;
-  min-width:340px;box-shadow:0 0 0 1px #3a2c10,0 10px 34px rgba(0,0,0,.75),inset 0 0 22px rgba(0,10,40,.55);user-select:none}
+  min-width:340px;box-shadow:0 8px 32px rgba(0,0,0,.65);user-select:none}
 
 #lb-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}
 #lb-title{font-weight:700;font-size:18px;letter-spacing:3px;color:#f0c96a;text-shadow:0 1px 2px #000}
 #lb-gear{margin-left:auto;width:34px;height:34px;border-radius:9px;border:1px solid #3a465c;background:#232b3a;color:#9fb4d8;font-size:18px;cursor:pointer;transition:.15s}
 #lb-gear:hover{background:#2e3950;color:#fff}
-#lb-bar{width:100%;height:28px;background:#10131c;border-radius:9px;overflow:hidden;border:1px solid #000}
-#lb-fill{height:100%;width:0%;border-radius:9px;background:linear-gradient(90deg,#37d67a,#8ff5b3);transition:width .3s}
+#lb-bar{width:100%;height:26px;background:#10131c;border-radius:9px;overflow:hidden;border:1px solid #000}
+#lb-fill{height:100%;width:0%;border-radius:9px;background:linear-gradient(90deg,#3ddc84,#a5ffb0);transition:width .3s}
 #lb-txt{font-size:64px;font-weight:900;margin-top:2px}
 #lb-sub{color:#c8d4e8;font-size:26px;margin-top:0px}
 #lb-opts{display:none;flex-direction:column;gap:4px;margin-top:6px;padding-top:6px;border-top:1px solid #2c3648;max-height:60vh;overflow-y:auto}
