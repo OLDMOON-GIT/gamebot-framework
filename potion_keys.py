@@ -53,7 +53,7 @@ class PotionKeys:
         # 오염시켰다(2026-09-15 사고) — 검증된 F6을 우선 키로 둔다.
         self._first_key = "F6"
         self._alt_key = "F5"
-        self._crisis_key = ""
+        self._backup_key = ""
         self._red_pct = 0.45
         self._first_fail = 0
         self._enabled = True
@@ -79,11 +79,11 @@ class PotionKeys:
             gained, hp_after = self._try_key(window, key, hp)
             inc = (hp_after - hp) if (gained and hp_after) else 0
             if inc >= 0.28:
-                log(f"감별: {key} +{inc:.0%}(≈{round(inc*253)}HP) — 맑은 계열(위기 물약)! 확정")
+                log(f"감별: {key} +{inc:.0%}(≈{round(inc*253)}HP) — 맑은 계열(보조 물약)! 확정")
                 try:
                     from bot_settings import load as _l, save as _sv
                     s = dict(_l(refresh=0))
-                    s["crisis_potion"] = {"key": key, "kind": "빨간",
+                    s["backup_potion"] = {"key": key, "kind": "빨간",
                                           "heal_pct": round(inc * 100)}
                     _sv(s)
                 except Exception:
@@ -119,7 +119,7 @@ class PotionKeys:
             k = (s.get("main_potion") or {}).get("key")
             if k:
                 self._first_key = k   # 주 물약 우선 고정(사용자 지시 2026-09-16)
-            self._crisis_key = (s.get("crisis_potion") or {}).get("key") or ""
+            self._backup_key = (s.get("backup_potion") or {}).get("key") or ""
             self._red_pct = s.get("red_pct", 45) / 100.0
             self._alt_key = s.get("potion_key_alt") or "F6"
             self._enabled = s.get("enabled", True)
@@ -152,15 +152,15 @@ class PotionKeys:
         self._low_since = None
         self._last_used = now
 
-        # 세팅값 감별(사용자 지시): 위기(<red_pct)엔 지정한 위기 물약 키.
+        # 세팅값 감별(사용자 지시): 보조 전환(<red_pct)엔 지정한 보조 물약 키.
         # 미지정이면 자동 감별 — F7/F8를 위기마다 1회씩 시험.
         # 리니지 조사(네이버 정리): 빨간 6~27(주물약, F5 실측 +20),
-        # 주홍 26~68, 맑은/엔트열매 44~107(평균 75). 위기 물약=맑은 계열
+        # 주홍 26~68, 맑은/엔트열매 44~107(평균 75). 보조 물약=맑은 계열
         # 확정 기준 **+28%p(≈71 HP)** — 주홍 최대 68과 분리.
         second = self._alt_key
         if hp < self._red_pct:
-            if self._crisis_key:
-                self._first_key = self._crisis_key
+            if self._backup_key:
+                self._first_key = self._backup_key
             elif self._probe_next(window, hp):
                 return USED
         # 사용자 지시(2026-09-16): 무조건 F5부터 — 매 턴 F5 우선, 무반응인

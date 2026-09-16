@@ -245,11 +245,10 @@
   log('시작됨 (네이티브 프레임 브리지)');
 
 
-  // ── 확장 HUD UI(BTS-1033474 계열, 사용자 지시 '크롬 익스텐션 UI') ──
-  // 게임 화면 좌상단에 봇 상태 패널을 띄운다. pointer-events:none 이므로
-  // 게임 조작을 절대 가로채지 않는다. 데이터는 ext_vision /hp(봇 게시값
-  // 우선). 이 파일은 크롬 재시작 시점부터 상주한다(그 전엔 페이지 주입본
-  // 이 동일 UI를 제공).
+  // ── 확장 HUD UI (BTS-1033569) ──
+  // 게임 화면 왼쪽 하단에 봇 상태 패널. 클릭은 패널만 받고 게임은 가리지
+  // 않게 접힌 채로 시작한다. 데이터는 ext_vision /hp.
+  // 크롬 재시작 없이 CDP 재주입해도 이 함수가 기존 패널을 교체한다.
   function installHudUi() {
 
   if (window.__lincHudUiTimer) clearInterval(window.__lincHudUiTimer);
@@ -300,7 +299,7 @@
   <div class="lb-sec">🧪 물약</div>
   <div class="lb-row"><label>주 물약</label><select id="st-kind1" style="font-size:13px;padding:2px 6px;background:#101d3a;color:#ffe9a8;border:1px solid #8a6a2f"></select><span class="val" id="v-heal1">+8%</span></div>
   <div class="lb-keys" id="lb-key1"></div>
-  <div class="lb-row" style="margin-top:6px"><label>위기 물약(&lt;45%)</label><select id="st-kind2" style="font-size:13px;padding:2px 6px;background:#101d3a;color:#ffe9a8;border:1px solid #8a6a2f"></select><span class="val" id="v-heal2">-</span></div>
+  <div class="lb-row" style="margin-top:6px"><label>보조 물약(&lt;45%)</label><select id="st-kind2" style="font-size:13px;padding:2px 6px;background:#101d3a;color:#ffe9a8;border:1px solid #8a6a2f"></select><span class="val" id="v-heal2">-</span></div>
   <div class="lb-keys" id="lb-key2"></div>
   <div class="lb-row" style="margin-top:6px"><label>보조 키</label></div>
   <div class="lb-keys" id="lb-key2"></div>
@@ -362,7 +361,7 @@
   async function loadSet() {
     try { const s = await (await fetch(S + '/bot-settings')).json();
       sel.key = s.orange_key || s.potion_key; sel.alt = s.potion_key_alt; sel.ret = s.return_key; sel.red = s.red_key || ''; sel.green = s.green_key || '';
-      const mp = s.main_potion || {}, cp = s.crisis_potion || {};
+      const mp = s.main_potion || {}, cp = s.backup_potion || {};
       sel.kind1 = mp.kind || '맑은'; sel.kind2 = cp.kind || '';
       sel.ckey = cp.key || '';
       $('st-kind1').value = sel.kind1; $('st-kind2').value = sel.kind2;
@@ -384,7 +383,7 @@
       const heal2 = KINDS[$('st-kind2').value] || 0;
       const ckey = document.querySelector('#lb-key2 .lb-key.sel')?.textContent || '';
       const body = { main_potion: {key: sel.key, kind: $('st-kind1').value, heal_pct: heal1},
-        crisis_potion: {key: ckey, kind: $('st-kind2').value, heal_pct: heal2},
+        backup_potion: {key: ckey, kind: $('st-kind2').value, heal_pct: heal2},
         potion_key: sel.key, potion_key_alt: sel.alt, return_key: sel.ret,
         potion_start_pct: +$('st-start').value, recover_to_pct: +$('st-goal').value,
         danger_pct: +$('st-danger').value, chain_max: +document.getElementById('st-chain')?.value || 6, enabled: on };
