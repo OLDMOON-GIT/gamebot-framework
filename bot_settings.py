@@ -35,7 +35,7 @@ DEFAULTS = {
     "orange_key": "F5",        # 구 UI(v3 3종 그리드) 호환 — 주 물약 표시
     "red_key": "",
     "green_key": "",
-    "backup_potion": {"key": "", "kind": "", "heal_pct": 0},  # 위기용(빈=주 물약)
+    "backup_potion": {"key": "F6", "kind": "빨간", "heal_pct": 6},  # 보조 물약 기본 F6(사용자 지시)
     "potion_key_alt": "F6",    # 보조(무반응 폴백)
     "return_key": "F8",        # 귀환 주문서
     "potion_start_pct": 80,    # 이 % 밑이면 물약 시작
