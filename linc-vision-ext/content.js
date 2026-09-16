@@ -323,10 +323,6 @@
   <div class="lb-keys" id="lb-key-alt"></div>
   <div class="lb-row"><label>시작</label>
     <input id="st-start" type="number" min="10" max="95" value="80"><span class="val">%</span></div>
-  <div class="lb-row"><label>목표 회복</label>
-    <input id="st-goal" type="number" min="10" max="99" value="80"><span class="val">%</span></div>
-  <div class="lb-row"><label>연속 상한</label>
-    <input id="st-chain" type="number" min="1" max="12" value="6"></div>
   <div class="lb-sec">비상 귀환</div>
   <div class="lb-row"><label>귀환 키</label></div>
   <div class="lb-keys" id="lb-key-return"></div>
