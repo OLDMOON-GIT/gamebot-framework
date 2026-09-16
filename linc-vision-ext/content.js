@@ -311,13 +311,13 @@
   <div class="lb-keys" id="lb-key2"></div>
   <div class="lb-row" style="margin-top:6px"><label>보조 키</label></div>
   <div class="lb-keys" id="lb-key2"></div>
-  <div class="lb-row"><label>시작</label><input class="lb-slider" id="st-start" type="range" min="10" max="95"><span class="val" id="v-start">80%</span></div>
-  <div class="lb-row"><label>목표 회복</label><input class="lb-slider" id="st-goal" type="range" min="10" max="99"><span class="val" id="v-goal">80%</span></div>
+  <div class="lb-row"><label>시작</label><input id="st-start" style="width:90px;font-size:22px;padding:6px;background:#232b3a;color:#fff;border:1px solid #3a465c;border-radius:6px;text-align:center" type="number" min="10" max="95" value="80"><span class="val" id="v-start">80%</span></div>
+  <div class="lb-row"><label>목표 회복</label><input id="st-goal" style="width:90px;font-size:22px;padding:6px;background:#232b3a;color:#fff;border:1px solid #3a465c;border-radius:6px;text-align:center" type="number" min="10" max="99" value="80"><span class="val" id="v-goal">80%</span></div>
   <div class="lb-row"><label>연속 상한</label><div id="lb-stepper"><button id="st-chminus">−</button><span class="val" id="v-chain">6</span><button id="st-chplus">＋</button></div></div>
   <div class="lb-sec">🌀 비상 귀환</div>
   <div class="lb-row"><label>귀환 키(F8 주문서)</label></div>
   <div class="lb-keys" id="lb-key3"></div>
-  <div class="lb-row"><label>위험 임계</label><input class="lb-slider" id="st-danger" type="range" min="1" max="40"><span class="val" id="v-danger">20%</span></div>
+  <div class="lb-row"><label>위험 임계</label><input id="st-danger" style="width:90px;font-size:22px;padding:6px;background:#232b3a;color:#fff;border:1px solid #3a465c;border-radius:6px;text-align:center" type="number" min="1" max="40" value="20"><span class="val" id="v-danger">20%</span></div>
   <div class="lb-sec">전체</div>
   <div class="lb-row"><label>봇 활성</label><div class="lb-toggle on" id="st-on"></div></div>
   <button id="lb-save">저 장</button>
