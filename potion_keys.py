@@ -119,10 +119,13 @@ class PotionKeys:
             k = (s.get("main_potion") or {}).get("key")
             if k:
                 self._first_key = k   # 주 물약 우선 고정(사용자 지시 2026-09-16)
-            self._backup_key = (s.get("backup_potion") or {}).get("key") or ""
-            self._red_pct = s.get("red_pct", 45) / 100.0
+            emg = s.get("emergency_potion") or s.get("backup_potion") or {}
+            self._backup_key = emg.get("key") or ""
+            self._red_pct = s.get("emergency_pct", s.get("red_pct", 45)) / 100.0
             self._alt_key = s.get("potion_key_alt") or "F6"
             self._enabled = s.get("enabled", True)
+            if s.get("potion_start_pct") is not None:
+                self.threshold = float(s["potion_start_pct"]) / 100.0
         except Exception:
             pass
 

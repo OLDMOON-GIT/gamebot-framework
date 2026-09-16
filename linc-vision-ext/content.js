@@ -251,252 +251,320 @@
   // 크롬 재시작 없이 CDP 재주입해도 이 함수가 기존 패널을 교체한다.
   function installHudUi() {
     if (window.__lincHudUiTimer) clearInterval(window.__lincHudUiTimer);
-    document.querySelectorAll('#linc-bot-hud').forEach(e => e.remove());
+    if (window.__lincHudMountTimer) clearInterval(window.__lincHudMountTimer);
+    document.querySelectorAll('#linc-hud,#linc-bot-hud,#linc-hud-slot,#linc-hud-css,#linc-bot-hud-css').forEach(e => e.remove());
     document.querySelectorAll('style').forEach(e => {
-      if (e.id === 'linc-bot-hud-css' || (e.textContent && e.textContent.indexOf('#linc-bot-hud') >= 0)) e.remove();
+      if (e.textContent && (e.textContent.indexOf('#linc-hud') >= 0 || e.textContent.indexOf('#linc-bot-hud') >= 0)) e.remove();
     });
 
     const S = 'http://127.0.0.1:17311';
-    // bot_settings.POTION_KINDS 와 동일. 등급: 맑은 > 주홍 > 빨간.
-    const KIND_ORDER = ['맑은', '주홍', '빨간'];
-    const KINDS = { '맑은': 30, '주홍': 20, '빨간': 6 };
     const KEYS = ['F1','F2','F3','F4','F5','F6','F7','F8','F9'];
-    const sel = { key: 'F5', alt: 'F6', ret: 'F8' };
-    let on = true;
+    const POTIONS = {
+      '빨간': { name:'빨간 물약', officialName:'체력 회복제', healMin:6, healMax:27, healAverage:16.5 },
+      '주홍': { name:'주홍 물약', officialName:'고급 체력 회복제', healMin:26, healMax:68, healAverage:47 },
+      '맑은': { name:'맑은 물약', officialName:'강력 체력 회복제', healMin:44, healMax:107, healAverage:75.5 }
+    };
+    const KIND_ORDER = ['주홍', '맑은', '빨간'];
+    const sel = {
+      main:'F5', emg:'F6', fb:'F4', ret:'F8',
+      buff1:'', buff2:'F9', shape:'F3', anti:'F2'
+    };
 
     const css = document.createElement('style');
-    css.id = 'linc-bot-hud-css';
+    css.id = 'linc-hud-css';
     css.textContent = `
-#linc-bot-hud{position:fixed;left:0;bottom:0;top:auto;right:auto;z-index:2147483647;
-  background:linear-gradient(160deg,#181d28f2,#0c0f16f2);border:1px solid #3a465c;border-radius:16px;
-  padding:14px 18px;color:#e8ecf4;font:20px/1.4 'Segoe UI',sans-serif;width:420px;max-width:96vw;
-  max-height:82vh;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,.65);user-select:none}
-#lb-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
-#lb-title{font-weight:700;font-size:28px;letter-spacing:2px;color:#7ec8ff}
-#lb-head button{width:34px;height:34px;border-radius:9px;border:1px solid #3a465c;background:#232b3a;color:#9fb4d8;font-size:18px;cursor:pointer}
-#lb-head button:hover{background:#2e3950;color:#fff}
-#lb-gear{margin-left:auto}
-#lb-bar{width:100%;height:16px;background:#10131c;border-radius:9px;overflow:hidden;border:1px solid #000}
-#lb-fill{height:100%;width:0;border-radius:9px;background:linear-gradient(90deg,#37d67a,#8ff5b3);transition:width .3s}
-#lb-txt{font-size:48px;font-weight:700;margin-top:4px;line-height:1.1}
-#lb-sub{color:#8d9cb8;font-size:16px;margin-top:2px}
-#lb-opts{display:none;flex-direction:column;gap:10px;margin-top:10px;padding-top:12px;border-top:1px solid #2c3648}
-#linc-bot-hud.open #lb-opts{display:flex}
-.lb-sec{font-size:18px;font-weight:700;color:#7ec8ff;letter-spacing:1px}
-.lb-row{display:flex;align-items:center;gap:10px}
-.lb-row label{flex:1;color:#c3cdde;font-size:18px}
-.lb-row .val{min-width:64px;text-align:right;font-weight:700;color:#fff;font-size:18px}
-.lb-row select,.lb-row input[type=number]{font-size:20px;padding:6px 8px;background:#232b3a;color:#fff;
-  border:1px solid #3a465c;border-radius:6px;min-width:120px;text-align:center}
-.lb-keys{display:grid;grid-template-columns:repeat(10,1fr);gap:4px}
-.lb-key{padding:8px 0;border-radius:7px;border:1px solid #3a465c;background:#232b3a;color:#9fb4d8;
-  font:600 14px monospace;cursor:pointer;text-align:center}
-.lb-key:hover{background:#2e3950}
-.lb-key.sel{background:#2f6fc4;color:#fff;border-color:#7ec8ff}
-.lb-toggle{position:relative;width:52px;height:26px;border-radius:13px;background:#2a3346;cursor:pointer;flex:none}
-.lb-toggle.on{background:#2f9e5b}
-.lb-toggle::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.2s}
-.lb-toggle.on::after{left:29px}
-#lb-save{margin-top:4px;padding:12px;border:0;border-radius:10px;background:linear-gradient(160deg,#2f6fc4,#2456a0);
-  color:#fff;font-size:18px;font-weight:700;cursor:pointer}
-#lb-msg{text-align:center;font-size:14px;color:#69d98d;min-height:16px}`;
+#linc-hud-slot{width:100%;max-width:100%;min-width:0;box-sizing:border-box;margin-top:12px;flex:1 1 auto;min-height:0;overflow-x:hidden;overflow-y:auto}
+#linc-hud{
+  --linc-padding:14px;--linc-gap-xs:4px;--linc-gap-sm:6px;--linc-gap-md:10px;--linc-gap-lg:14px;
+  --linc-font-caption:11px;--linc-font-small:12px;--linc-font-normal:13px;--linc-font-section:16px;
+  --linc-font-title:24px;--linc-font-hp:38px;--linc-control-height:30px;
+  --linc-radius-sm:5px;--linc-radius-md:8px;--linc-radius-panel:12px;
+  --linc-bg:#151a23;--linc-control-bg:#202938;--linc-border:#344155;
+  --linc-text:#e8edf5;--linc-muted:#93a0b2;--linc-accent:#49a7ff;--linc-active:#287bd4;--linc-on:#28ae68;
+  width:100%;max-width:100%;min-width:0;box-sizing:border-box;
+  position:relative;left:auto;right:auto;top:auto;bottom:auto;
+  background:var(--linc-bg);border:1px solid var(--linc-border);border-radius:var(--linc-radius-panel);
+  padding:var(--linc-padding);color:var(--linc-text);font:var(--linc-font-normal)/1.4 'Segoe UI',sans-serif;
+  overflow-x:hidden;user-select:none}
+#linc-hud *{box-sizing:border-box;max-width:100%}
+.lh-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+#lh-title{font-weight:700;font-size:var(--linc-font-title);letter-spacing:1px;color:var(--linc-accent)}
+#lh-gear{margin-left:auto;width:30px;height:30px;border-radius:var(--linc-radius-sm);border:1px solid var(--linc-border);background:var(--linc-control-bg);color:var(--linc-muted);cursor:default}
+#lh-bar{width:100%;height:10px;background:#10131c;border-radius:6px;overflow:hidden;border:1px solid #000}
+#lh-fill{height:100%;width:0;background:linear-gradient(90deg,#37d67a,#8ff5b3)}
+#lh-hp{font-size:var(--linc-font-hp);font-weight:700;line-height:1.1;margin-top:4px}
+#lh-sub{color:var(--linc-muted);font-size:var(--linc-font-caption);margin-top:2px}
+#lh-warn{color:#ff8a8a;font-size:var(--linc-font-caption);min-height:14px;margin-top:4px}
+.lh-sec{font-size:var(--linc-font-section);font-weight:700;color:var(--linc-accent);margin:var(--linc-gap-lg) 0 var(--linc-gap-sm);padding-top:var(--linc-gap-md);border-top:1px solid var(--linc-border)}
+.lh-row{display:flex;align-items:center;gap:var(--linc-gap-sm);margin:var(--linc-gap-sm) 0;min-width:0}
+.lh-row label{flex:1;color:var(--linc-text);font-size:var(--linc-font-normal);min-width:0}
+.lh-note{color:var(--linc-muted);font-size:var(--linc-font-caption);margin:2px 0 6px}
+.lh-row select,.lh-row input[type=number]{height:var(--linc-control-height);background:var(--linc-control-bg);color:var(--linc-text);border:1px solid var(--linc-border);border-radius:var(--linc-radius-sm);font-size:var(--linc-font-normal);text-align:center}
+.lh-row input[type=number]{width:60px;flex:none}
+.lh-row select{min-width:0;flex:1.2}
+.lh-keys{display:flex;flex-wrap:wrap;gap:var(--linc-gap-xs);margin:4px 0 8px}
+.lh-key{width:30px;height:30px;border-radius:var(--linc-radius-sm);border:1px solid var(--linc-border);background:var(--linc-control-bg);color:var(--linc-muted);font:600 11px monospace;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.lh-key.sel{background:var(--linc-active);color:#fff;border-color:var(--linc-accent)}
+.lh-tog{position:relative;width:40px;height:22px;border-radius:11px;background:#2a3346;cursor:pointer;flex:none}
+.lh-tog.on{background:var(--linc-on)}
+.lh-tog::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.15s}
+.lh-tog.on::after{left:21px}
+#lh-save{display:block;width:100%;height:40px;margin-top:var(--linc-gap-lg);border:0;border-radius:var(--linc-radius-md);background:var(--linc-active);color:#fff;font-size:var(--linc-font-small);font-weight:700;cursor:pointer}
+#lh-msg{text-align:center;font-size:var(--linc-font-caption);color:var(--linc-on);min-height:14px;margin-top:4px}`;
     document.head.appendChild(css);
 
     const panel = document.createElement('div');
-    panel.id = 'linc-bot-hud';
+    panel.id = 'linc-hud';
+    panel.className = 'linc-hud';
     panel.innerHTML = `
-<div id="lb-head">
-  <span id="lb-title">LINC BOT</span>
-  <button id="lb-reset" title="왼쪽 하단으로">↺</button>
-  <button id="lb-gear" title="설정">⚙</button>
-</div>
-<div id="lb-bar"><div id="lb-fill"></div></div>
-<div id="lb-txt">HP --%</div>
-<div id="lb-sub">설정은 ⚙</div>
-<div id="lb-opts">
-  <div class="lb-sec">물약</div>
-  <div class="lb-row"><label>주 물약</label>
-    <select id="st-kind-main"></select><span class="val" id="v-heal-main">+30%</span></div>
-  <div class="lb-keys" id="lb-key-main"></div>
-  <div class="lb-row"><label>보조 물약</label>
-    <select id="st-kind-alt"></select><span class="val" id="v-heal-alt">+6%</span></div>
-  <div class="lb-keys" id="lb-key-alt"></div>
-  <div class="lb-row"><label>시작</label>
-    <input id="st-start" type="number" min="10" max="95" value="80"><span class="val">%</span></div>
-  <div class="lb-sec">비상 귀환</div>
-  <div class="lb-row"><label>귀환 키</label></div>
-  <div class="lb-keys" id="lb-key-return"></div>
-  <div class="lb-row"><label>위험 임계</label>
-    <input id="st-danger" type="number" min="1" max="40" value="20"><span class="val">%</span></div>
-  <div class="lb-sec">전체</div>
-  <div class="lb-row"><label>봇 활성</label><div class="lb-toggle on" id="st-on"></div></div>
-  <button id="lb-save">저장</button>
-  <div id="lb-msg"></div>
-</div>`;
-    document.body.appendChild(panel);
+<div class="lh-head"><span id="lh-title">LINC-HUD</span><button id="lh-gear" title="설정">⚙</button></div>
+<div id="lh-bar"><div id="lh-fill"></div></div>
+<div id="lh-hp">HP --%</div>
+<div id="lh-sub">봇 대기 중</div>
+<div id="lh-warn"></div>
+<div class="lh-sec">💉 물약</div>
+<div class="lh-row"><label>일반 물약</label><select id="st-kind-main"></select></div>
+<div class="lh-note" id="note-main"></div>
+<div class="lh-row"><label>HP ≤</label><input id="st-hp-main" type="number" min="10" max="95" value="80"><span class="lh-note">%</span></div>
+<div class="lh-keys" id="lh-key-main"></div>
+<div class="lh-row"><label>위급 물약</label><select id="st-kind-emg"></select></div>
+<div class="lh-note" id="note-emg"></div>
+<div class="lh-row"><label>HP ≤</label><input id="st-hp-emg" type="number" min="5" max="80" value="45"><span class="lh-note">%</span></div>
+<div class="lh-keys" id="lh-key-emg"></div>
+<div class="lh-row"><label>주 물약 소진 시 대체 물약 사용</label><div class="lh-tog on" id="st-fallback"></div></div>
+<div class="lh-row"><label>대체 물약</label><select id="st-kind-fb"></select></div>
+<div class="lh-keys" id="lh-key-fb"></div>
+<div class="lh-sec">🌀 안전</div>
+<div class="lh-row"><label>비상 귀환</label><div class="lh-tog on" id="st-return"></div></div>
+<div class="lh-row"><label>위험 HP ≤</label><input id="st-danger" type="number" min="1" max="40" value="20"><span class="lh-note">%</span></div>
+<div class="lh-keys" id="lh-key-return"></div>
+<div class="lh-row"><label>물약 없음 귀환</label><div class="lh-tog on" id="st-empty-return"></div></div>
+<div class="lh-row"><label>무게 귀환</label><div class="lh-tog on" id="st-weight-return"></div></div>
+<div class="lh-row"><label>무게 ≥</label><input id="st-weight-pct" type="number" min="50" max="99" value="80"><span class="lh-note">%</span></div>
+<div class="lh-row"><label>비전투 귀환</label><div class="lh-tog" id="st-idle-return"></div></div>
+<div class="lh-row"><label>전투 없음</label><input id="st-idle-min" type="number" min="1" max="60" value="10"><span class="lh-note">분</span></div>
+<div class="lh-sec">🎁 아이템</div>
+<div class="lh-row"><label>아이템 줍기</label><div class="lh-tog on" id="st-pickup"></div></div>
+<div class="lh-row"><label>아이템 우선</label><div class="lh-tog" id="st-pickup-pri"></div></div>
+<div class="lh-row"><label>아데나만</label><div class="lh-tog" id="st-adena"></div></div>
+<div class="lh-row"><label>획득 무게 제한</label><input id="st-pickup-w" type="number" min="10" max="99" value="70"><span class="lh-note">%</span></div>
+<div class="lh-sec">⚡ 버프</div>
+<div class="lh-row"><label>1단 가속</label><div class="lh-tog on" id="st-buff1"></div></div>
+<div class="lh-row"><label>초록 물약</label><select id="st-buff1-kind"><option>초록 물약</option><option>강화 초록 물약</option></select></div>
+<div class="lh-keys" id="lh-key-buff1"></div>
+<div class="lh-row"><label>2단 가속</label><div class="lh-tog on" id="st-buff2"></div></div>
+<div class="lh-row"><label>종류</label><select id="st-buff2-kind"><option>악마의 피</option><option>용기의 물약</option><option>엘븐 와퍼</option></select></div>
+<div class="lh-keys" id="lh-key-buff2"></div>
+<div class="lh-row"><label>변신 유지</label><div class="lh-tog on" id="st-shape"></div></div>
+<div class="lh-row"><label>변신</label><select id="st-shape-form"><option>오크 스카우트</option><option>늑대인간</option><option>스켈레톤</option></select></div>
+<div class="lh-keys" id="lh-key-shape"></div>
+<div class="lh-row"><label>자동 해독</label><div class="lh-tog on" id="st-anti"></div></div>
+<div class="lh-keys" id="lh-key-anti"></div>
+<div class="lh-sec">⚔ 사냥</div>
+<div class="lh-row"><label>자동 공격</label><div class="lh-tog on" id="st-attack"></div></div>
+<div class="lh-row"><label>선공 몬스터 우선</label><div class="lh-tog on" id="st-aggro"></div></div>
+<div class="lh-row"><label>매너 사냥</label><div class="lh-tog on" id="st-manner"></div></div>
+<div class="lh-row"><label>탐색 범위</label><input id="st-range" type="number" min="1" max="18" value="10"></div>
+<div class="lh-row"><label>타겟 없음</label><input id="st-notarget" type="number" min="3" max="60" value="10"><span class="lh-note">초</span></div>
+<div class="lh-row"><label>한 타겟 최대 전투</label><input id="st-timeout" type="number" min="10" max="180" value="60"><span class="lh-note">초</span></div>
+<div class="lh-sec">BOT 활성</div>
+<div class="lh-row"><label>BOT 활성</label><div class="lh-tog on" id="st-on"></div></div>
+<button id="lh-save">저장</button>
+<div id="lh-msg"></div>`;
 
-    const $ = id => document.getElementById(id);
-    function healText(kind) {
-      return kind && KINDS[kind] != null ? '+' + KINDS[kind] + '%' : '-';
+    const $ = id => panel.querySelector('#' + id) || document.getElementById(id);
+    function healNote(kind) {
+      const p = POTIONS[kind];
+      if (!p) return '';
+      return '회복 ' + p.healMin + '~' + p.healMax + ' HP · 평균 약 ' + p.healAverage;
     }
     function fillKinds(id, allowEmpty) {
-      const el = $(id);
-      if (!el) return;
-      const opts = allowEmpty ? '<option value="">-</option>' : '';
-      el.innerHTML = opts + KIND_ORDER.map(k => '<option value="'+k+'">'+k+'</option>').join('');
+      const el = $(id); if (!el) return;
+      el.innerHTML = (allowEmpty ? '<option value="">-</option>' : '') +
+        KIND_ORDER.map(k => '<option value="'+k+'">'+POTIONS[k].name+'</option>').join('');
     }
     function paintGrid(elId, prop, allowEmpty) {
-      const el = $(elId);
-      if (!el) return;
+      const el = $(elId); if (!el) return;
       const cur = sel[prop];
-      const none = allowEmpty
-        ? '<div class="lb-key'+(cur===''?' sel':'')+'" data-k="">-</div>' : '';
+      const none = allowEmpty ? '<div class="lh-key'+(cur===''?' sel':'')+'" data-k="">-</div>' : '';
       el.innerHTML = none + KEYS.map(k =>
-        '<div class="lb-key'+(cur===k?' sel':'')+'" data-k="'+k+'">'+k+'</div>').join('');
-      el.querySelectorAll('.lb-key').forEach(b => {
+        '<div class="lh-key'+(cur===k?' sel':'')+'" data-k="'+k+'">'+k+'</div>').join('');
+      el.querySelectorAll('.lh-key').forEach(b => {
         b.onclick = () => {
           sel[prop] = b.dataset.k;
-          el.querySelectorAll('.lb-key').forEach(x => x.classList.toggle('sel', x === b));
+          el.querySelectorAll('.lh-key').forEach(x => x.classList.toggle('sel', x === b));
         };
       });
     }
-    function paintAllGrids() {
-      paintGrid('lb-key-main', 'key', false);
-      paintGrid('lb-key-alt', 'alt', true);
-      paintGrid('lb-key-return', 'ret', false);
+    function tog(id, on) {
+      const el = $(id); if (!el) return;
+      el.classList.toggle('on', !!on);
+      el.onclick = () => el.classList.toggle('on');
     }
-    function inViewport(left, top, w, h) {
-      return left >= 0 && top >= 0 && left < innerWidth - 80 && top < innerHeight - 80
-        && top + Math.min(h, 80) > 0;
+    function isOn(id) { const el = $(id); return !!(el && el.classList.contains('on')); }
+    function paintAll() {
+      paintGrid('lh-key-main','main',false);
+      paintGrid('lh-key-emg','emg',false);
+      paintGrid('lh-key-fb','fb',true);
+      paintGrid('lh-key-return','ret',false);
+      paintGrid('lh-key-buff1','buff1',true);
+      paintGrid('lh-key-buff2','buff2',true);
+      paintGrid('lh-key-shape','shape',true);
+      paintGrid('lh-key-anti','anti',true);
     }
-    function gamePaneLeft() {
-      const v = document.querySelector('video');
-      if (v) {
-        const r = v.getBoundingClientRect();
-        if (r.width > 100 && r.height > 100) return Math.max(0, Math.round(r.left));
+    function findLaunchButton() {
+      return [...document.querySelectorAll('button')].find(b =>
+        (b.textContent || '').replace(/\s+/g,' ').trim() === '+ 게임 실행');
+    }
+    function sizeSlot(slot) {
+      if (!slot) return;
+      const top = slot.getBoundingClientRect().top;
+      const aside = document.querySelector('aside');
+      const bottom = aside ? aside.getBoundingClientRect().bottom : innerHeight;
+      slot.style.maxHeight = Math.max(180, Math.round(bottom - top - 8)) + 'px';
+    }
+    function mountHud() {
+      const old = document.getElementById('linc-hud-slot');
+      const btn = findLaunchButton();
+      if (old && btn && btn.parentElement && old.previousElementSibling === btn.parentElement && old.contains(panel)) {
+        sizeSlot(old);
+        return true;
+      }
+      if (old) old.remove();
+      const slot = document.createElement('div');
+      slot.id = 'linc-hud-slot';
+      slot.appendChild(panel);
+      if (btn && btn.parentElement && btn.parentElement.parentElement) {
+        btn.parentElement.after(slot);
+        sizeSlot(slot);
+        return true;
       }
       const aside = document.querySelector('aside');
-      if (aside) {
-        const r = aside.getBoundingClientRect();
-        if (r.width > 80 && r.width < innerWidth * 0.5) return Math.round(r.right);
-      }
-      return 0;
-    }
-    function placeDefault() {
-      panel.style.top = 'auto';
-      panel.style.right = 'auto';
-      panel.style.bottom = '0px';
-      panel.style.left = gamePaneLeft() + 'px';
-      const v = document.querySelector('video');
-      if (v) {
-        const r = v.getBoundingClientRect();
-        if (r.width > 100 && r.height > 100) {
-          panel.style.bottom = Math.max(0, Math.round(innerHeight - r.bottom)) + 'px';
-        }
-      }
-    }
-    function applySavedPos() {
-      placeDefault();
-      const pane = gamePaneLeft();
-      try {
-        const saved = JSON.parse(localStorage.getItem('lincHudPos') || 'null');
-        if (!saved || saved.l == null || saved.t == null) return;
-        const left = parseInt(saved.l, 10), top = parseInt(saved.t, 10);
-        // 사이드바에 저장된 좌표는 이전 GLM 버그값 — 버린다.
-        if (!Number.isFinite(left) || !Number.isFinite(top)
-            || left < pane - 1 || !inViewport(left, top, 420, 80)) {
-          localStorage.removeItem('lincHudPos');
-          return;
-        }
-        panel.style.left = left + 'px';
-        panel.style.top = top + 'px';
-        panel.style.bottom = 'auto';
-      } catch (_) {}
-    }
-    function makeDraggable() {
-      const head = $('lb-head');
-      if (!head) return;
-      head.style.cursor = 'move';
-      let sx=0, sy=0, ox=0, oy=0, moving=false;
-      head.addEventListener('mousedown', e => {
-        if (e.target && (e.target.id === 'lb-gear' || e.target.id === 'lb-reset')) return;
-        moving = true; sx = e.clientX; sy = e.clientY;
-        const r = panel.getBoundingClientRect(); ox = r.left; oy = r.top;
-        panel.style.right = 'auto'; panel.style.bottom = 'auto';
-        e.preventDefault();
-      });
-      window.addEventListener('mousemove', e => {
-        if (!moving) return;
-        const left = Math.max(0, Math.min(innerWidth - 80, ox + e.clientX - sx));
-        const top = Math.max(0, Math.min(innerHeight - 80, oy + e.clientY - sy));
-        panel.style.left = left + 'px';
-        panel.style.top = top + 'px';
-      });
-      window.addEventListener('mouseup', () => {
-        if (!moving) return; moving = false;
-        try { localStorage.setItem('lincHudPos', JSON.stringify({l: panel.style.left, t: panel.style.top})); } catch (_) {}
-      });
+      if (aside) { aside.appendChild(slot); sizeSlot(slot); return true; }
+      document.body.appendChild(slot);
+      sizeSlot(slot);
+      return false;
     }
 
+    mountHud();
     fillKinds('st-kind-main', false);
-    fillKinds('st-kind-alt', true);
-    $('st-kind-main').value = '맑은';
-    $('st-kind-alt').value = '빨간';
-    $('st-kind-main').onchange = () => { $('v-heal-main').textContent = healText($('st-kind-main').value); };
-    $('st-kind-alt').onchange = () => { $('v-heal-alt').textContent = healText($('st-kind-alt').value); };
-    paintAllGrids();
-    $('st-on').onclick = () => { on = !on; $('st-on').classList.toggle('on', on); };
-    $('lb-gear').onclick = () => panel.classList.toggle('open');
-    $('lb-reset').onclick = () => { try { localStorage.removeItem('lincHudPos'); } catch (_) {} placeDefault(); };
+    fillKinds('st-kind-emg', false);
+    fillKinds('st-kind-fb', true);
+    $('st-kind-main').value = '주홍';
+    $('st-kind-emg').value = '맑은';
+    $('st-kind-fb').value = '빨간';
+    const syncNotes = () => {
+      $('note-main').textContent = healNote($('st-kind-main').value);
+      $('note-emg').textContent = healNote($('st-kind-emg').value);
+    };
+    $('st-kind-main').onchange = syncNotes;
+    $('st-kind-emg').onchange = syncNotes;
+    syncNotes();
+    paintAll();
+    ['st-fallback','st-return','st-empty-return','st-weight-return','st-pickup','st-buff1','st-buff2','st-shape','st-anti','st-attack','st-aggro','st-manner','st-on'].forEach(id => tog(id, true));
+    tog('st-idle-return', false);
+    tog('st-pickup-pri', false);
+    tog('st-adena', false);
 
+    function applyCatalog(s) {
+      if (s && s.potions) {
+        Object.keys(s.potions).forEach(k => { POTIONS[k] = s.potions[k]; });
+      }
+    }
     async function loadSet() {
       try {
         const s = await (await fetch(S + '/bot-settings')).json();
+        applyCatalog(s);
         const mp = s.main_potion || {};
-        const bp = s.backup_potion || s.crisis_potion || {};
-        sel.key = mp.key || s.potion_key || sel.key;
-        sel.alt = bp.key || s.potion_key_alt || sel.alt;
+        const ep = s.emergency_potion || s.backup_potion || {};
+        const fp = s.fallback_potion || {};
+        sel.main = mp.key || s.potion_key || sel.main;
+        sel.emg = ep.key || sel.emg;
+        sel.fb = fp.key || sel.fb;
         sel.ret = s.return_key || sel.ret;
-        const kMain = KIND_ORDER.includes(mp.kind) ? mp.kind : '맑은';
-        const kAlt = KIND_ORDER.includes(bp.kind) ? bp.kind : '빨간';
-        $('st-kind-main').value = kMain;
-        $('st-kind-alt').value = kAlt;
-        $('v-heal-main').textContent = healText(kMain);
-        $('v-heal-alt').textContent = healText(kAlt);
-        $('st-start').value = s.potion_start_pct != null ? s.potion_start_pct : 80;
-        $('st-goal').value = s.recover_to_pct != null ? s.recover_to_pct : 80;
+        sel.buff1 = s.buff_green_key || '';
+        sel.buff2 = s.buff_haste2_key || 'F9';
+        sel.shape = s.shapechange_key || 'F3';
+        sel.anti = s.antidote_key || 'F2';
+        if (POTIONS[mp.kind]) $('st-kind-main').value = mp.kind;
+        if (POTIONS[ep.kind]) $('st-kind-emg').value = ep.kind;
+        if (POTIONS[fp.kind] || fp.kind === '') $('st-kind-fb').value = fp.kind || '';
+        $('st-hp-main').value = s.potion_start_pct != null ? s.potion_start_pct : 80;
+        $('st-hp-emg').value = s.emergency_pct != null ? s.emergency_pct : 45;
         $('st-danger').value = s.danger_pct != null ? s.danger_pct : 20;
-        $('st-chain').value = s.chain_max != null ? s.chain_max : 6;
-        on = s.enabled !== false;
-        $('st-on').classList.toggle('on', on);
-        paintAllGrids();
-      } catch (e) {
-        console.log('[linc-hud] settings load fail', e && e.message);
-      }
+        $('st-weight-pct').value = s.weight_return_pct != null ? s.weight_return_pct : 80;
+        $('st-idle-min').value = s.no_combat_minutes != null ? s.no_combat_minutes : 10;
+        $('st-pickup-w').value = s.pickup_weight_pct != null ? s.pickup_weight_pct : 70;
+        $('st-range').value = s.search_range != null ? s.search_range : 10;
+        $('st-notarget').value = s.no_target_sec != null ? s.no_target_sec : 10;
+        $('st-timeout').value = s.target_timeout_sec != null ? s.target_timeout_sec : 60;
+        if (s.buff_green_kind) $('st-buff1-kind').value = s.buff_green_kind;
+        if (s.buff_haste2_kind) $('st-buff2-kind').value = s.buff_haste2_kind;
+        if (s.shapechange_form) $('st-shape-form').value = s.shapechange_form;
+        const flags = {
+          'st-fallback': s.fallback_on_empty, 'st-return': s.return_enabled,
+          'st-empty-return': s.potion_empty_return, 'st-weight-return': s.weight_return,
+          'st-idle-return': s.no_combat_return, 'st-pickup': s.pickup_enabled,
+          'st-pickup-pri': s.pickup_priority, 'st-adena': s.adena_only,
+          'st-buff1': s.buff_green, 'st-buff2': s.buff_haste2,
+          'st-shape': s.shapechange, 'st-anti': s.antidote,
+          'st-attack': s.auto_attack, 'st-aggro': s.aggro_first,
+          'st-manner': s.manner_hunt, 'st-on': s.enabled
+        };
+        Object.keys(flags).forEach(id => { if (flags[id] != null) $(id).classList.toggle('on', !!flags[id]); });
+        syncNotes();
+        paintAll();
+      } catch (e) { console.log('[linc-hud] settings load fail', e && e.message); }
     }
-    $('lb-save').onclick = async () => {
-      const kMain = $('st-kind-main').value || '맑은';
-      const kAlt = $('st-kind-alt').value || '빨간';
+    $('lh-save').onclick = async () => {
+      const kMain = $('st-kind-main').value || '주홍';
+      const kEmg = $('st-kind-emg').value || '맑은';
+      const kFb = $('st-kind-fb').value || '';
       const body = {
-        main_potion: { key: sel.key, kind: kMain, heal_pct: KINDS[kMain] || 30 },
-        backup_potion: { key: sel.alt, kind: kAlt, heal_pct: KINDS[kAlt] || 6 },
-        crisis_potion: { key: sel.alt, kind: kAlt, heal_pct: KINDS[kAlt] || 6 },
-        potion_key: sel.key,
-        orange_key: sel.key,
-        potion_key_alt: sel.alt,
+        main_potion: { key: sel.main, kind: kMain },
+        emergency_potion: { key: sel.emg, kind: kEmg },
+        backup_potion: { key: sel.emg, kind: kEmg },
+        fallback_potion: { key: sel.fb, kind: kFb },
+        potion_key: sel.main, orange_key: sel.main, potion_key_alt: sel.emg,
         return_key: sel.ret,
-        potion_start_pct: +$('st-start').value,
-        recover_to_pct: +$('st-goal').value,
+        potion_start_pct: +$('st-hp-main').value,
+        emergency_pct: +$('st-hp-emg').value, red_pct: +$('st-hp-emg').value,
         danger_pct: +$('st-danger').value,
-        chain_max: +$('st-chain').value,
-        enabled: on
+        fallback_on_empty: isOn('st-fallback'),
+        return_enabled: isOn('st-return'),
+        potion_empty_return: isOn('st-empty-return'),
+        weight_return: isOn('st-weight-return'),
+        weight_return_pct: +$('st-weight-pct').value,
+        no_combat_return: isOn('st-idle-return'),
+        no_combat_minutes: +$('st-idle-min').value,
+        pickup_enabled: isOn('st-pickup'),
+        pickup_priority: isOn('st-pickup-pri'),
+        adena_only: isOn('st-adena'),
+        pickup_weight_pct: +$('st-pickup-w').value,
+        buff_green: isOn('st-buff1'),
+        buff_green_kind: $('st-buff1-kind').value,
+        buff_green_key: sel.buff1,
+        buff_haste2: isOn('st-buff2'),
+        buff_haste2_kind: $('st-buff2-kind').value,
+        buff_haste2_key: sel.buff2,
+        shapechange: isOn('st-shape'),
+        shapechange_key: sel.shape,
+        shapechange_form: $('st-shape-form').value,
+        antidote: isOn('st-anti'),
+        antidote_key: sel.anti,
+        auto_attack: isOn('st-attack'),
+        aggro_first: isOn('st-aggro'),
+        manner_hunt: isOn('st-manner'),
+        search_range: +$('st-range').value,
+        no_target_sec: +$('st-notarget').value,
+        target_timeout_sec: +$('st-timeout').value,
+        enabled: isOn('st-on')
       };
       try {
-        await fetch(S + '/bot-settings', { method: 'POST',
-          headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-        $('lb-msg').textContent = '저장됨';
-        setTimeout(() => { $('lb-msg').textContent = ''; }, 2000);
-      } catch (e) { $('lb-msg').textContent = '저장 실패'; }
+        await fetch(S + '/bot-settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        $('lh-msg').textContent = '저장됨';
+        setTimeout(() => { $('lh-msg').textContent = ''; }, 2000);
+      } catch (e) { $('lh-msg').textContent = '저장 실패'; }
     };
     async function poll() {
       try {
@@ -507,27 +575,36 @@
         else if (typeof r.ratio === 'number') hp = r.ratio;
         if (hp != null && Number.isFinite(hp)) {
           hp = Math.max(0, Math.min(1, hp));
-          $('lb-fill').style.width = Math.round(hp * 100) + '%';
-          $('lb-fill').style.background = hp < 0.45
-            ? 'linear-gradient(90deg,#e5484d,#ff8a8a)'
-            : hp < 0.8 ? 'linear-gradient(90deg,#f5b431,#ffd76e)'
-            : 'linear-gradient(90deg,#37d67a,#8ff5b3)';
-          $('lb-txt').textContent = 'HP ' + Math.round(hp * 100) + '%';
+          $('lh-fill').style.width = Math.round(hp * 100) + '%';
+          $('lh-fill').style.background = hp < 0.45 ? 'linear-gradient(90deg,#e5484d,#ff8a8a)'
+            : hp < 0.8 ? 'linear-gradient(90deg,#f5b431,#ffd76e)' : 'linear-gradient(90deg,#37d67a,#8ff5b3)';
+          $('lh-hp').textContent = 'HP ' + Math.round(hp * 100) + '%';
+        } else {
+          $('lh-hp').textContent = 'HP --%';
         }
-        $('lb-sub').textContent = r.bot
-          ? ('사냥 ' + (r.bot.kills || 0) + '회')
-          : (panel.classList.contains('open') ? '설정 가능' : '설정은 ⚙');
+        const bits = [];
+        if (r.bot) bits.push('사냥 중');
+        else bits.push('봇 대기 중');
+        if (r.bot && r.bot.mp != null) bits.push('MP ' + Math.round(r.bot.mp * 100) + '%');
+        else if (typeof r.mp === 'number') bits.push('MP ' + Math.round(r.mp * 100) + '%');
+        if (r.bot && r.bot.weight != null) bits.push('무게 ' + Math.round(r.bot.weight * 100) + '%');
+        else if (typeof r.weight === 'number') bits.push('무게 ' + Math.round(r.weight * 100) + '%');
+        $('lh-sub').textContent = bits.join(' · ');
+        const warn = [];
+        if (hp == null && !r.bot) warn.push('');
+        if (r.bot && r.bot.warn) warn.push('⚠ ' + r.bot.warn);
+        $('lh-warn').textContent = warn.filter(Boolean).join(' · ');
       } catch (e) {
-        $('lb-sub').textContent = '수신 없음';
+        $('lh-sub').textContent = '수신 없음';
+        $('lh-warn').textContent = '⚠ 게임창 없음';
       }
     }
 
-    applySavedPos();
-    makeDraggable();
+    window.__lincHudMountTimer = setInterval(mountHud, 2500);
     window.__lincHudUiTimer = setInterval(poll, 400);
     poll();
     loadSet();
-    return 'ui-v4';
+    return 'linc-hud-v1';
   }
   installHudUi();
 })();

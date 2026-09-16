@@ -1,4 +1,4 @@
-"""content.js HUD 계약 — GLM이 CSS 루프에서 반복 파손한 항목을 고정한다 (BTS-1033569)."""
+"""LINC-HUD 계약 (BTS-1033572)."""
 from pathlib import Path
 import re
 
@@ -8,42 +8,62 @@ CONTENT = Path(__file__).with_name("linc-vision-ext") / "content.js"
 SRC = CONTENT.read_text(encoding="utf-8")
 
 
-def test_hud_함수_있고_중복_id가_없다():
-    assert "function installHudUi()" in SRC
+def test_표시이름이_LINC_HUD다():
+    assert "LINC-HUD" in SRC
+    assert "LINC BOT" not in SRC
+
+
+def test_고정폭_420_금지():
+    assert "width:420px" not in SRC
+    assert "width: 420px" not in SRC
+
+
+def test_퍼센트_회복_표시가_없다():
+    assert re.search(r"\+[0-9]+%", SRC) is None
+    assert "healMin" in SRC and "healMax" in SRC
+
+
+def test_게임실행_버튼과_같은_부모에_붙인다():
+    assert "function findLaunchButton()" in SRC
+    assert "+ 게임 실행" in SRC
+    assert "btn.parentElement.after" in SRC
+    assert "width:100%" in SRC
+
+
+def test_아코디언이_없다():
+    assert "classList.toggle('open'" not in SRC
+    assert "display:none" not in SRC.split("function installHudUi")[-1]
+
+
+def test_중복_id가_없다():
     ids = re.findall(r'\bid="([^"]+)"', SRC)
-    hud_ids = [i for i in ids if i.startswith("lb-") or i.startswith("st-") or i.startswith("v-heal")]
-    dup = sorted({i for i in hud_ids if hud_ids.count(i) > 1})
-    assert dup == [], f"HUD 템플릿 중복 id: {dup}"
+    dup = sorted({i for i in ids if ids.count(i) > 1})
+    assert dup == [], dup
 
 
-def test_구버전_죽은_참조가_없다():
-    for dead in ("st-chminus", "st-chplus", "v-chain", "lb-keyr", "lb-keyg", 'id="lb-key2"'):
-        assert dead not in SRC, f"죽은 참조 잔존: {dead}"
+def test_물약_실측이_파이썬과_같다():
+    m = re.search(r"const POTIONS = \{(.+?)\};", SRC, re.S)
+    assert m
+    js_min = dict(re.findall(r"'([^']+)':\s*\{[^}]*healMin:(\d+)", m.group(1)))
+    js_max = dict(re.findall(r"'([^']+)':\s*\{[^}]*healMax:(\d+)", m.group(1)))
+    for k, spec in bot_settings.POTIONS.items():
+        assert int(js_min[k]) == spec["healMin"]
+        assert int(js_max[k]) == spec["healMax"]
 
 
-def test_키그리드_id가_역할별로_분리된다():
-    for i in ("lb-key-main", "lb-key-alt", "lb-key-return"):
-        assert i in SRC, i
-    assert "lb-key-crisis" not in SRC
+def test_필수_설정_필드가_저장된다():
+    for key in (
+        "emergency_potion", "fallback_on_empty", "potion_empty_return",
+        "pickup_enabled", "weight_return", "buff_green", "shapechange",
+        "antidote", "auto_attack", "aggro_first", "manner_hunt",
+        "search_range", "target_timeout_sec",
+    ):
+        assert key in SRC
+        assert key in bot_settings.DEFAULTS
 
 
-def test_물약_종류가_파이썬_프리셋과_같다():
-    m = re.search(r"const KINDS = \{([^}]+)\}", SRC)
-    assert m, "KINDS 없음"
-    js = {}
-    for k, v in re.findall(r"'([^']+)':\s*(\d+)", m.group(1)):
-        js[k] = int(v)
-    assert js == bot_settings.POTION_KINDS, (js, bot_settings.POTION_KINDS)
-
-
-def test_기본_위치가_게임창_왼쪽_하단이다():
-    assert "bottom:0" in SRC or "bottom: 0" in SRC
-    assert "max-height:82vh" in SRC or "max-height: 82vh" in SRC
-    assert "function gamePaneLeft()" in SRC
-    assert "document.querySelector('aside')" in SRC
-
-
-def test_맑은_기본_heal_pct_가_최강값이다():
-    assert bot_settings.DEFAULTS["main_potion"]["kind"] == "맑은"
-    assert bot_settings.DEFAULTS["main_potion"]["heal_pct"] == bot_settings.POTION_KINDS["맑은"]
-    assert bot_settings.POTION_KINDS["맑은"] > bot_settings.POTION_KINDS["주홍"] > bot_settings.POTION_KINDS["빨간"]
+def test_일반물약_기본이_주홍_F5다():
+    assert bot_settings.DEFAULTS["main_potion"]["kind"] == "주홍"
+    assert bot_settings.DEFAULTS["main_potion"]["key"] == "F5"
+    assert bot_settings.DEFAULTS["emergency_potion"]["kind"] == "맑은"
+    assert bot_settings.DEFAULTS["emergency_potion"]["key"] == "F6"
