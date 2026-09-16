@@ -398,7 +398,7 @@
   function resetPos() {
     try { localStorage.removeItem('lincHudPos'); } catch (_) {}
     const p = document.getElementById('linc-bot-hud');
-    if (p) { p.style.left = DEFAULT_POS.l; p.style.bottom = DEFAULT_POS.b; p.style.top = 'auto'; p.style.right = 'auto'; }
+    // 위치는 installHudUi에서 1회만 설정 — poll에서 건드리지 않음
   }
   function anchorToGame() {
     // 사용자 지시(2026-09-15): '게임실행밑으로' — 게임 실행(비디오)
