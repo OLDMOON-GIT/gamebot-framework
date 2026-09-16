@@ -48,6 +48,14 @@ def test_최근_사용_정렬():
     assert [t["id"] for t in sort_recent(items, hist)] == ["c", "a", "b"]
 
 
+def test_공격마법_카탈로그가_클래스별이다():
+    from class_config import SKILLS
+    assert len(SKILLS["wizard"]) >= 8
+    names = [s["name"] for s in SKILLS["elf"]]
+    assert "이럽션" in names and "에너지 볼트" in names
+    assert "쇼크 스턴" in [s["name"] for s in SKILLS["knight"]]
+
+
 def test_샤르나_스크롤_종류가_분리된다():
     kinds = {t["scrollKind"] for t in TRANSFORM_DATA}
     assert "NORMAL_SCROLL" in kinds

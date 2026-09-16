@@ -289,6 +289,14 @@
     let charClass = 'knight';
     const buffOn = {};
     const buffKey = {};
+    let MP_POTIONS = [{id:'', name:'-'}, {id:'mana', name:'마력 회복제'}, {id:'mana_hi', name:'고급 마력 회복제'}, {id:'mana_strong', name:'강력 마력 회복제'}];
+    let FUNC_CATALOG = [];
+    let SKILLS = {};
+    let funcItems = [];
+    let attackSkills = [];
+    let buffRemain = {};
+    sel.mp1 = '';
+    sel.mp2 = '';
 
     const css = document.createElement('style');
     css.id = 'linc-hud-css';
@@ -313,8 +321,8 @@
 #lh-bar{width:100%;height:10px;background:#10131c;border-radius:6px;overflow:hidden;border:1px solid #000}
 #lh-fill{height:100%;width:0;background:linear-gradient(90deg,#37d67a,#8ff5b3)}
 #lh-hp{font-size:var(--linc-font-hp);font-weight:700;line-height:1.1;margin-top:4px}
-#lh-mp{font-size:22px;font-weight:700;line-height:1.1;margin-top:2px;display:none}
-#linc-hud.wizard #lh-mp{display:block}
+#lh-mp{font-size:22px;font-weight:700;line-height:1.1;margin-top:2px}
+#linc-hud.wizard #lh-mp{font-size:28px}
 #lh-sub{color:var(--linc-muted);font-size:var(--linc-font-caption);margin-top:2px}
 .lh-tabs{display:flex;gap:4px;margin:6px 0}
 .lh-tab{flex:1;height:26px;border:1px solid var(--linc-border);background:var(--linc-control-bg);color:var(--linc-muted);border-radius:5px;font-size:11px;cursor:pointer}
@@ -358,12 +366,12 @@
 <div class="lh-row"><label>클래스</label><select id="st-class"></select></div>
 <div class="lh-row"><label>레벨</label><input id="st-level" type="number" min="1" max="99" value="27"></div>
 <div class="lh-row"><label>무기</label><select id="st-weapon"></select></div>
-<div class="lh-sec">💉 물약</div>
-<div class="lh-row"><label>일반 물약</label><select id="st-kind-main"></select></div>
+<div class="lh-sec">💉 HP 회복</div>
+<div class="lh-row"><label>1차 물약</label><select id="st-kind-main"></select></div>
 <div class="lh-note" id="note-main"></div>
 <div class="lh-row"><label>HP ≤</label><input id="st-hp-main" type="number" min="10" max="95" value="80"><span class="lh-note">%</span></div>
 <div class="lh-keys" id="lh-key-main"></div>
-<div class="lh-row"><label>위급 물약</label><select id="st-kind-emg"></select></div>
+<div class="lh-row"><label>2차 물약</label><select id="st-kind-emg"></select></div>
 <div class="lh-note" id="note-emg"></div>
 <div class="lh-row"><label>HP ≤</label><input id="st-hp-emg" type="number" min="5" max="80" value="45"><span class="lh-note">%</span></div>
 <div class="lh-keys" id="lh-key-emg"></div>
@@ -377,15 +385,28 @@
 <div class="lh-row"><label>물약 없음 귀환</label><div class="lh-tog on" id="st-empty-return"></div></div>
 <div class="lh-row"><label>무게 귀환</label><div class="lh-tog on" id="st-weight-return"></div></div>
 <div class="lh-row"><label>무게 ≥</label><input id="st-weight-pct" type="number" min="50" max="99" value="80"><span class="lh-note">%</span></div>
+<div class="lh-row"><label>MP 귀환</label><div class="lh-tog" id="st-mp-return"></div></div>
+<div class="lh-row"><label>MP ≤</label><input id="st-mp-ret" type="number" min="1" max="50" value="10"><span class="lh-note">%</span></div>
 <div class="lh-row"><label>비전투 귀환</label><div class="lh-tog" id="st-idle-return"></div></div>
-<div class="lh-row"><label>전투 없음</label><input id="st-idle-min" type="number" min="1" max="60" value="10"><span class="lh-note">분</span></div>
+<div class="lh-row"><label>전투 없음</label><input id="st-idle-sec" type="number" min="30" max="3600" value="600"><span class="lh-note">초</span></div>
+<div class="lh-sec">💙 MP 회복</div>
+<div class="lh-row"><label>MP 회복</label><div class="lh-tog" id="st-mp-on"></div></div>
+<div class="lh-row"><label>1차 MP</label><select id="st-mp1"></select></div>
+<div class="lh-row"><label>MP ≤</label><input id="st-mp1-pct" type="number" min="5" max="90" value="30"><span class="lh-note">%</span></div>
+<div class="lh-keys" id="lh-key-mp1"></div>
+<div class="lh-row"><label>2차 MP</label><select id="st-mp2"></select></div>
+<div class="lh-row"><label>MP ≤</label><input id="st-mp2-pct" type="number" min="1" max="50" value="15"><span class="lh-note">%</span></div>
+<div class="lh-keys" id="lh-key-mp2"></div>
 <div class="lh-sec">🎁 아이템</div>
 <div class="lh-row"><label>아이템 줍기</label><div class="lh-tog on" id="st-pickup"></div></div>
 <div class="lh-row"><label>아이템 우선</label><div class="lh-tog" id="st-pickup-pri"></div></div>
 <div class="lh-row"><label>아데나만</label><div class="lh-tog" id="st-adena"></div></div>
-<div class="lh-row"><label>획득 무게 제한</label><input id="st-pickup-w" type="number" min="10" max="99" value="70"><span class="lh-note">%</span></div>
-<div class="lh-sec">⚡ 버프</div>
+<div class="lh-row"><label>획득 무게 제한</label><div class="lh-tog on" id="st-pw-on"></div></div>
+<div class="lh-row"><label>무게 ≤</label><input id="st-pickup-w" type="number" min="10" max="99" value="70"><span class="lh-note">%</span></div>
+<div class="lh-sec">⚡ 버프 / 기능 아이템</div>
 <div id="lh-buff-box"></div>
+<div class="lh-row"><label>기능 아이템</label><button type="button" id="lh-add-func" class="lh-tab">+ 추가</button></div>
+<div id="lh-func-box"></div>
 <div class="lh-sec">👤 변신</div>
 <div class="lh-row"><label>변신 유지</label><div class="lh-tog on" id="st-shape"></div></div>
 <div class="lh-row"><label>주문서</label></div>
@@ -405,11 +426,15 @@
 <div class="lh-row"><label>주문서 없음</label><select id="st-tnoscroll"><option value="continue">변신 없이 계속 사냥</option><option value="stop">BOT 중지</option></select></div>
 <div class="lh-row"><label>자동 해독</label><div class="lh-tog on" id="st-anti"></div></div>
 <div class="lh-keys" id="lh-key-anti"></div>
+<div class="lh-sec">✨ 공격 마법</div>
+<div id="lh-skill-box"></div>
 <div class="lh-sec">⚔ 사냥</div>
 <div class="lh-row"><label>자동 공격</label><div class="lh-tog on" id="st-attack"></div></div>
 <div class="lh-row"><label>선공 몬스터 우선</label><div class="lh-tog on" id="st-aggro"></div></div>
 <div class="lh-row"><label>매너 사냥</label><div class="lh-tog on" id="st-manner"></div></div>
-<div class="lh-row"><label>탐색 범위</label><input id="st-range" type="number" min="1" max="18" value="10"></div>
+<div class="lh-row"><label>탐색 범위</label><input id="st-range" type="number" min="1" max="18" value="8"><span class="lh-note">걸음</span></div>
+<div class="lh-row"><label>사냥 위치 제한</label><div class="lh-tog on" id="st-anchor-on"></div></div>
+<div class="lh-row"><label>위치 제한</label><input id="st-anchor" type="number" min="1" max="18" value="8"><span class="lh-note">걸음</span></div>
 <div class="lh-row"><label>타겟 없음</label><input id="st-notarget" type="number" min="3" max="60" value="10"><span class="lh-note">초</span></div>
 <div class="lh-row"><label>한 타겟 최대 전투</label><input id="st-timeout" type="number" min="10" max="180" value="60"><span class="lh-note">초</span></div>
 <div class="lh-sec">BOT 활성</div>
@@ -454,6 +479,8 @@
       paintGrid('lh-key-return','ret',false);
       paintGrid('lh-key-shape','shape',true);
       paintGrid('lh-key-anti','anti',true);
+      paintGrid('lh-key-mp1','mp1',true);
+      paintGrid('lh-key-mp2','mp2',true);
     }
     function fillSelect(id, items, value) {
       const el = $(id); if (!el) return;
@@ -561,7 +588,7 @@
         return '<div class="lh-b" data-bid="'+b.id+'">'
           + '<div class="lh-row"><label>'+(b.name||b.label)+'</label>'
           + '<div class="lh-tog'+(on?' on':'')+'" data-btog="'+b.id+'"></div></div>'
-          + '<div class="lh-note">'+(b.note || (b.durationMin ? ('지속 약 '+b.durationMin+'분') : ''))+'</div>'
+          + '<div class="lh-note">'+(fmtRemain(b.id) || b.note || (b.durationMin ? ('지속 약 '+b.durationMin+'분') : ''))+'</div>'
           + extra
           + '<div class="lh-keys" data-bkeys="'+b.id+'"></div></div>';
       }).join('');
@@ -584,6 +611,56 @@
         });
       });
       panel.classList.toggle('wizard', charClass === 'wizard');
+    }
+    function fmtRemain(id) {
+      const sec = buffRemain[id];
+      if (sec == null || !Number.isFinite(sec) || sec < 0) return '';
+      const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+      return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+    }
+    function classSkills() { return SKILLS[charClass] || SKILLS.knight || [{id:'none', name:'-'}]; }
+    function renderFuncItems() {
+      const box = $('lh-func-box'); if (!box) return;
+      const cat = FUNC_CATALOG.length ? FUNC_CATALOG : [{id:'green', name:'초록 물약', triggerType:'TIMER', duration:300}];
+      box.innerHTML = funcItems.map((it, i) => {
+        const opts = cat.map(c => '<option value="'+c.id+'"'+(c.id===it.itemId?' selected':'')+'>'+c.name+'</option>').join('');
+        return '<div class="lh-b" data-fi="'+i+'">'
+          + '<div class="lh-row"><select data-fi-id="'+i+'">'+opts+'</select>'
+          + '<div class="lh-tog'+(it.enabled!==false?' on':'')+'" data-fi-on="'+i+'"></div>'
+          + '<button type="button" class="lh-tab" data-fi-del="'+i+'">삭제</button></div>'
+          + '<div class="lh-row"><label>키</label><select data-fi-key="'+i+'"><option value="">-</option>'
+          + KEYS.map(k=>'<option value="'+k+'"'+(it.hotkey===k?' selected':'')+'>'+k+'</option>').join('')
+          + '</select></div></div>';
+      }).join('');
+      box.querySelectorAll('[data-fi-on]').forEach(el => { el.onclick = () => { el.classList.toggle('on'); const i=+el.dataset.fiOn; funcItems[i].enabled = el.classList.contains('on'); }; });
+      box.querySelectorAll('[data-fi-id]').forEach(el => { el.onchange = () => { const i=+el.dataset.fiId; const c=cat.find(x=>x.id===el.value)||{}; funcItems[i].itemId=c.id; funcItems[i].name=c.name; funcItems[i].triggerType=c.triggerType; funcItems[i].duration=c.duration||0; }; });
+      box.querySelectorAll('[data-fi-key]').forEach(el => { el.onchange = () => { funcItems[+el.dataset.fiKey].hotkey = el.value; }; });
+      box.querySelectorAll('[data-fi-del]').forEach(el => { el.onclick = () => { funcItems.splice(+el.dataset.fiDel,1); renderFuncItems(); }; });
+    }
+    function renderSkills() {
+      const box = $('lh-skill-box'); if (!box) return;
+      const pool = classSkills();
+      while (attackSkills.length < 8) attackSkills.push({id:'none', name:'-', enabled:false, key:'', mpMin:0, hpMin:0, targetHpMax:100, intervalSec:3, maxCount:0});
+      attackSkills = attackSkills.slice(0,8);
+      box.innerHTML = attackSkills.map((sk, i) => {
+        const opts = pool.map(p => '<option value="'+p.id+'"'+(p.id===sk.id?' selected':'')+'>'+p.name+'</option>').join('');
+        return '<div class="lh-b">'
+          + '<div class="lh-row"><label>'+(i+1)+'</label><select data-sk="'+i+'">'+opts+'</select>'
+          + '<button type="button" class="lh-tab" data-up="'+i+'">↑</button>'
+          + '<button type="button" class="lh-tab" data-dn="'+i+'">↓</button></div>'
+          + '<div class="lh-row"><label>자동</label><div class="lh-tog'+(sk.enabled?' on':'')+'" data-sk-on="'+i+'"></div>'
+          + '<label>간격</label><input type="number" min="0" max="30" value="'+(sk.intervalSec||3)+'" data-sk-iv="'+i+'"></div>'
+          + '<div class="lh-row"><label>MP≥</label><input type="number" min="0" max="100" value="'+(sk.mpMin||0)+'" data-sk-mp="'+i+'">'
+          + '<label>HP≥</label><input type="number" min="0" max="100" value="'+(sk.hpMin||0)+'" data-sk-hp="'+i+'"></div></div>';
+      }).join('');
+      const sync = (i, field, val) => { attackSkills[i][field] = val; };
+      box.querySelectorAll('[data-sk]').forEach(el => { el.onchange = () => { const i=+el.dataset.sk; const p=pool.find(x=>x.id===el.value)||{id:'none',name:'-'}; attackSkills[i].id=p.id; attackSkills[i].name=p.name; }; });
+      box.querySelectorAll('[data-sk-on]').forEach(el => { el.onclick = () => { el.classList.toggle('on'); attackSkills[+el.dataset.skOn].enabled = el.classList.contains('on'); }; });
+      box.querySelectorAll('[data-sk-iv]').forEach(el => { el.onchange = () => sync(+el.dataset.skIv,'intervalSec', +el.value); });
+      box.querySelectorAll('[data-sk-mp]').forEach(el => { el.onchange = () => sync(+el.dataset.skMp,'mpMin', +el.value); });
+      box.querySelectorAll('[data-sk-hp]').forEach(el => { el.onchange = () => sync(+el.dataset.skHp,'hpMin', +el.value); });
+      box.querySelectorAll('[data-up]').forEach(el => { el.onclick = () => { const i=+el.dataset.up; if(i<=0)return; const t=attackSkills[i-1]; attackSkills[i-1]=attackSkills[i]; attackSkills[i]=t; renderSkills(); }; });
+      box.querySelectorAll('[data-dn]').forEach(el => { el.onclick = () => { const i=+el.dataset.dn; if(i>=7)return; const t=attackSkills[i+1]; attackSkills[i+1]=attackSkills[i]; attackSkills[i]=t; renderSkills(); }; });
     }
     function snapshotNow() {
       return {
@@ -651,6 +728,8 @@
       }
       renderBuffs();
       renderTransforms();
+      renderFuncItems();
+      renderSkills();
       paintAll();
       syncNotes();
       if ($('lh-save') && $('lh-save').onclick) $('lh-save').onclick();
@@ -710,8 +789,21 @@
     tog('st-idle-return', false);
     tog('st-pickup-pri', false);
     tog('st-adena', false);
+    tog('st-mp-on', false);
+    tog('st-mp-return', false);
+    tog('st-pw-on', true);
+    tog('st-anchor-on', true);
+    fillSelect('st-mp1', MP_POTIONS, '');
+    fillSelect('st-mp2', MP_POTIONS, '');
     renderBuffs();
     renderTransforms();
+    renderFuncItems();
+    renderSkills();
+    if ($('lh-add-func')) $('lh-add-func').onclick = () => {
+      const c = (FUNC_CATALOG[0] || {id:'green', name:'초록 물약', triggerType:'TIMER', duration:300});
+      funcItems.push({itemId:c.id, name:c.name, hotkey:'', enabled:true, triggerType:c.triggerType||'TIMER', duration:c.duration||0, refreshBefore:10});
+      renderFuncItems();
+    };
     if ($('st-class')) $('st-class').onchange = () => changeClass($('st-class').value);
     if ($('st-weapon')) $('st-weapon').onchange = () => renderTransforms();
     if ($('st-level')) $('st-level').onchange = () => renderTransforms();
@@ -728,6 +820,9 @@
       if (s && s.classes) CLASSES = s.classes;
       if (s && s.weapons) WEAPONS = s.weapons;
       if (s && s.transforms) TRANSFORMS = s.transforms;
+      if (s && s.skills) SKILLS = s.skills;
+      if (s && s.funcItemCatalog) FUNC_CATALOG = s.funcItemCatalog;
+      if (s && s.mpPotions) MP_POTIONS = s.mpPotions;
     }
     async function loadSet() {
       try {
@@ -769,7 +864,21 @@
         $('st-hp-emg').value = s.emergency_pct != null ? s.emergency_pct : 45;
         $('st-danger').value = s.danger_pct != null ? s.danger_pct : 20;
         $('st-weight-pct').value = s.weight_return_pct != null ? s.weight_return_pct : 80;
-        $('st-idle-min').value = s.no_combat_minutes != null ? s.no_combat_minutes : 10;
+        if ($('st-idle-sec')) $('st-idle-sec').value = s.no_combat_sec != null ? s.no_combat_sec : (s.no_combat_minutes != null ? s.no_combat_minutes * 60 : 600);
+        if ($('st-mp1-pct') && s.mp_start_pct != null) $('st-mp1-pct').value = s.mp_start_pct;
+        if ($('st-mp2-pct') && s.mp_emergency_pct != null) $('st-mp2-pct').value = s.mp_emergency_pct;
+        if ($('st-mp-ret') && s.mp_return_pct != null) $('st-mp-ret').value = s.mp_return_pct;
+        if ($('st-anchor') && s.hunt_anchor_range != null) $('st-anchor').value = s.hunt_anchor_range;
+        fillSelect('st-mp1', MP_POTIONS, (s.mp_potion||{}).kind || '');
+        fillSelect('st-mp2', MP_POTIONS, (s.mp_potion2||{}).kind || '');
+        sel.mp1 = (s.mp_potion||{}).key || '';
+        sel.mp2 = (s.mp_potion2||{}).key || '';
+        funcItems = Array.isArray(s.func_items) ? s.func_items.slice() : [];
+        attackSkills = Array.isArray(s.attack_skills) ? s.attack_skills.slice() : [];
+        buffRemain = s.buff_remain || {};
+        if ($('st-mp-on') && s.mp_recover_enabled != null) $('st-mp-on').classList.toggle('on', !!s.mp_recover_enabled);
+        if ($('st-mp-return') && s.mp_return_enabled != null) $('st-mp-return').classList.toggle('on', !!s.mp_return_enabled);
+        if ($('st-pw-on') && s.pickup_weight_enabled != null) $('st-pw-on').classList.toggle('on', !!s.pickup_weight_enabled);
         $('st-pickup-w').value = s.pickup_weight_pct != null ? s.pickup_weight_pct : 70;
         $('st-range').value = s.search_range != null ? s.search_range : 10;
         $('st-notarget').value = s.no_target_sec != null ? s.no_target_sec : 10;
@@ -788,6 +897,8 @@
         paintAll();
         renderBuffs();
         renderTransforms();
+        renderFuncItems();
+        renderSkills();
       } catch (e) { console.log('[linc-hud] settings load fail', e && e.message); }
     }
     $('lh-save').onclick = async () => {
@@ -810,7 +921,19 @@
         weight_return: isOn('st-weight-return'),
         weight_return_pct: +$('st-weight-pct').value,
         no_combat_return: isOn('st-idle-return'),
-        no_combat_minutes: +$('st-idle-min').value,
+        no_combat_sec: +(($('st-idle-sec')||{}).value || 600),
+        no_combat_minutes: Math.round((+(($('st-idle-sec')||{}).value || 600)) / 60),
+        mp_recover_enabled: isOn('st-mp-on'),
+        mp_potion: { key: sel.mp1, kind: ($('st-mp1')||{}).value || '' },
+        mp_potion2: { key: sel.mp2, kind: ($('st-mp2')||{}).value || '' },
+        mp_start_pct: +(($('st-mp1-pct')||{}).value || 30),
+        mp_emergency_pct: +(($('st-mp2-pct')||{}).value || 15),
+        mp_return_enabled: isOn('st-mp-return'),
+        mp_return_pct: +(($('st-mp-ret')||{}).value || 10),
+        pickup_weight_enabled: isOn('st-pw-on'),
+        hunt_anchor_range: +(($('st-anchor')||{}).value || 8),
+        func_items: funcItems,
+        attack_skills: attackSkills,
         pickup_enabled: isOn('st-pickup'),
         pickup_priority: isOn('st-pickup-pri'),
         adena_only: isOn('st-adena'),
@@ -885,6 +1008,7 @@
         const warn = [];
         if (hp == null && !r.bot) warn.push('');
         if (r.bot && r.bot.warn) warn.push('⚠ ' + r.bot.warn);
+        if (r.bot && r.bot.buffs) buffRemain = r.bot.buffs;
         $('lh-warn').textContent = warn.filter(Boolean).join(' · ');
       } catch (e) {
         $('lh-sub').textContent = '수신 없음';

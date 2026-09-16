@@ -62,6 +62,15 @@ def test_필수_설정_필드가_저장된다():
         assert key in bot_settings.DEFAULTS
 
 
+def test_ATS_누락기능이_HUD에_있다():
+    for key in ("1차 물약", "2차 물약", "MP 회복", "MP 귀환", "기능 아이템",
+                "공격 마법", "사냥 위치 제한", "lh-skill-box", "lh-func-box"):
+        assert key in SRC, key
+    for key in ("mp_potion", "attack_skills", "func_items", "hunt_anchor_range",
+                "mp_return_enabled", "no_combat_sec"):
+        assert key in bot_settings.DEFAULTS, key
+
+
 def test_클래스와_변신_데이터가_HUD에_연결된다():
     assert "st-class" in SRC
     assert "classProfiles" in SRC

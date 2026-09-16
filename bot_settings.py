@@ -101,6 +101,19 @@ DEFAULTS = {
     "transformNoScrollAction": "continue",
     "transformScrollKind": "NORMAL_SCROLL",
     "transformStatus": "idle",
+    "mp_recover_enabled": False,
+    "mp_potion": {"key": "", "kind": ""},
+    "mp_potion2": {"key": "", "kind": ""},
+    "mp_start_pct": 30,
+    "mp_emergency_pct": 15,
+    "mp_return_enabled": False,
+    "mp_return_pct": 10,
+    "no_combat_sec": 600,
+    "pickup_weight_enabled": True,
+    "hunt_anchor_range": 8,
+    "func_items": [],
+    "attack_skills": [],
+    "buff_remain": {},
 }
 
 PROFILE_KEYS = [
@@ -114,6 +127,11 @@ PROFILE_KEYS = [
     "preferredTransformId", "fallbackTransformId",
     "transformFavorites", "transformHistory", "transformKey",
     "weaponType",
+    "mp_recover_enabled", "mp_potion", "mp_potion2",
+    "mp_start_pct", "mp_emergency_pct",
+    "mp_return_enabled", "mp_return_pct",
+    "func_items", "attack_skills",
+    "hunt_anchor_range", "search_range",
 ]
 
 
@@ -152,7 +170,9 @@ _cache = {"t": 0.0, "data": dict(DEFAULTS)}
 
 
 def _with_catalog(data):
-    from class_config import CLASS_CONFIG, CLASSES, WEAPONS
+    from class_config import (
+        CLASS_CONFIG, CLASSES, WEAPONS, SKILLS, FUNC_ITEM_CATALOG, MP_POTIONS, EMPTY_SKILL,
+    )
     from transform_data import TRANSFORM_DATA
     out = dict(data)
     out["potions"] = POTIONS
@@ -160,6 +180,10 @@ def _with_catalog(data):
     out["classes"] = CLASSES
     out["weapons"] = WEAPONS
     out["transforms"] = TRANSFORM_DATA
+    out["skills"] = SKILLS
+    out["funcItemCatalog"] = FUNC_ITEM_CATALOG
+    out["mpPotions"] = MP_POTIONS
+    out["emptySkill"] = EMPTY_SKILL
     return out
 
 
