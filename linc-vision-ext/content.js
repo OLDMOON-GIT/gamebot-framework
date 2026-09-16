@@ -354,11 +354,9 @@
     $(id).oninput = () => $(vid).textContent = $(id).value + suffix;
   }
 
-  let chain = 6;
-  $('st-chminus').onclick = () => { chain = Math.max(1, chain - 1); $('v-chain').textContent = chain; };
-  $('st-chplus').onclick = () => { chain = Math.min(8, chain + 1); $('v-chain').textContent = chain; };
   let on = true;
-  $('st-on').onclick = () => { on = !on; $('st-on').classList.toggle('on', on); };
+  const _on = document.getElementById('st-on');
+  if (_on) _on.onclick = () => { on = !on; _on.classList.toggle('on', on); };
   $('lb-gear').onclick = () => panel.classList.toggle('open');
   fillKinds('st-kind1', 'v-heal1'); fillKinds('st-kind2', 'v-heal2');
   async function loadSet() {
@@ -389,7 +387,7 @@
         crisis_potion: {key: ckey, kind: $('st-kind2').value, heal_pct: heal2},
         potion_key: sel.key, potion_key_alt: sel.alt, return_key: sel.ret,
         potion_start_pct: +$('st-start').value, recover_to_pct: +$('st-goal').value,
-        danger_pct: +$('st-danger').value, chain_max: chain, enabled: on };
+        danger_pct: +$('st-danger').value, chain_max: +document.getElementById('st-chain')?.value || 6, enabled: on };
       await fetch(S + '/bot-settings', { method: 'POST',
         headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
       $('lb-msg').textContent = '저장됨 — 즉시 반영 ✓';
