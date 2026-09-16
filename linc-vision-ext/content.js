@@ -269,16 +269,16 @@
 #lb-title{font-weight:700;font-size:18px;letter-spacing:3px;color:#f0c96a;text-shadow:0 1px 2px #000}
 #lb-gear{margin-left:auto;width:32px;height:32px;border-radius:3px;border:1px solid #8a6a2f;background:#101d3a;color:#e0a94f;font-size:17px;cursor:pointer;transition:.15s}
 #lb-gear:hover{background:#1c2f5e;color:#ffe9a8}
-#lb-bar{width:100%;height:40px;background:#060d1e;border-radius:2px;overflow:hidden;border:1px solid #3a2c10}
+#lb-bar{width:100%;height:28px;background:#060d1e;border-radius:2px;overflow:hidden;border:1px solid #3a2c10}
 #lb-fill{height:100%;width:0%;border-radius:9px;background:linear-gradient(90deg,#37d67a,#8ff5b3);transition:width .3s}
-#lb-txt{font-size:72px;font-weight:900;margin-top:10px}
-#lb-sub{color:#c8d4e8;font-size:30px;margin-top:6px}
-#lb-opts{display:none;flex-direction:column;gap:12px;margin-top:12px;padding-top:14px;border-top:1px solid #2c3648}
+#lb-txt{font-size:56px;font-weight:900;margin-top:8px}
+#lb-sub{color:#c8d4e8;font-size:22px;margin-top:4px}
+#lb-opts{display:none;flex-direction:column;gap:10px;margin-top:10px;padding-top:12px;border-top:1px solid #2c3648;max-height:60vh;overflow-y:auto}
 #linc-bot-hud.open #lb-opts{display:flex}
-.lb-sec{font-size:22px;font-weight:700;color:#d8b25e;letter-spacing:2px;margin-bottom:-4px;border-bottom:1px solid #3a2c10;padding-bottom:3px}
+.lb-sec{font-size:16px;font-weight:700;color:#d8b25e;letter-spacing:2px;margin-bottom:-4px;border-bottom:1px solid #3a2c10;padding-bottom:3px}
 .lb-row{display:flex;align-items:center;gap:10px}
-.lb-row label{flex:1;color:#c3cdde;font-size:24px}
-.lb-row .val{min-width:70px;font-size:26px;text-align:right;font-weight:700;color:#fff}
+.lb-row label{flex:1;color:#c3cdde;font-size:18px}
+.lb-row .val{min-width:60px;font-size:20px;text-align:right;font-weight:700;color:#fff}
 .lb-slider{flex:1.4;appearance:none;height:6px;border-radius:2px;background:#0a142c;border:1px solid #3a2c10;outline:none}
 .lb-slider::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border-radius:2px;background:#e0a94f;border:1px solid #6a5218;cursor:pointer}
 .lb-keys{display:grid;grid-template-columns:repeat(9,1fr);gap:4px}
