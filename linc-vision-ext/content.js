@@ -311,13 +311,13 @@
   <div class="lb-keys" id="lb-key2"></div>
   <div class="lb-row" style="margin-top:6px"><label>보조 키</label></div>
   <div class="lb-keys" id="lb-key2"></div>
-  <div class="lb-row"><label>시작</label><input id="st-start" style="width:90px;font-size:22px;padding:6px;background:#232b3a;color:#fff;border:1px solid #3a465c;border-radius:6px;text-align:center" type="number" min="10" max="95" value="80"><span class="val" id="v-start">80%</span></div>
-  <div class="lb-row"><label>목표 회복</label><input id="st-goal" style="width:90px;font-size:22px;padding:6px;background:#232b3a;color:#fff;border:1px solid #3a465c;border-radius:6px;text-align:center" type="number" min="10" max="99" value="80"><span class="val" id="v-goal">80%</span></div>
-  <div class="lb-row"><label>연속 상한</label><div id="lb-stepper"><button id="st-chminus">−</button><span class="val" id="v-chain">6</span><button id="st-chplus">＋</button></div></div>
+  <div class="lb-row"><label>시작</label><input id="st-start" style="width:90px;font-size:22px;padding:6px;background:#232b3a;color:#fff;border:1px solid #3a465c;border-radius:6px;text-align:center" type="number" min="10" max="95" value="80"><span class="val" id="v-start">%</span></div>
+  <div class="lb-row"><label>목표 회복</label><input id="st-goal" style="width:90px;font-size:22px;padding:6px;background:#232b3a;color:#fff;border:1px solid #3a465c;border-radius:6px;text-align:center" type="number" min="10" max="99" value="80"><span class="val" id="v-goal">%</span></div>
+  <div class="lb-row"><label>연속 상한</label><input type="number" id="st-chain" min="1" max="12" value="6" style="width:60px;font-size:22px;padding:6px;background:#232b3a;color:#fff;border:1px solid #3a465c;border-radius:6px;text-align:center"></div>
   <div class="lb-sec">🌀 비상 귀환</div>
   <div class="lb-row"><label>귀환 키(F8 주문서)</label></div>
   <div class="lb-keys" id="lb-key3"></div>
-  <div class="lb-row"><label>위험 임계</label><input id="st-danger" style="width:90px;font-size:22px;padding:6px;background:#232b3a;color:#fff;border:1px solid #3a465c;border-radius:6px;text-align:center" type="number" min="1" max="40" value="20"><span class="val" id="v-danger">20%</span></div>
+  <div class="lb-row"><label>위험 임계</label><input id="st-danger" style="width:90px;font-size:22px;padding:6px;background:#232b3a;color:#fff;border:1px solid #3a465c;border-radius:6px;text-align:center" type="number" min="1" max="40" value="20"><span class="val" id="v-danger">%</span></div>
   <div class="lb-sec">전체</div>
   <div class="lb-row"><label>봇 활성</label><div class="lb-toggle on" id="st-on"></div></div>
   <button id="lb-save">저 장</button>
@@ -360,7 +360,7 @@
   function bindSlider(id, vid, suffix='%') {
     $(id).oninput = () => $(vid).textContent = $(id).value + suffix;
   }
-  bindSlider('st-start', 'v-start'); bindSlider('st-goal', 'v-goal'); bindSlider('st-danger', 'v-danger');
+
   let chain = 6;
   $('st-chminus').onclick = () => { chain = Math.max(1, chain - 1); $('v-chain').textContent = chain; };
   $('st-chplus').onclick = () => { chain = Math.min(8, chain + 1); $('v-chain').textContent = chain; };
@@ -380,9 +380,9 @@
       const csel = document.querySelector('#lb-key2 .lb-key.sel');
       if (sel.ckey && !csel) { document.querySelectorAll('#lb-key2 .lb-key').forEach(x => { if (x.textContent === sel.ckey) x.classList.add('sel'); }); }
       grid('lb-key1', 'key'); grid('lb-key2', 'alt'); grid('lb-key3', 'ret'); gridX('lb-keyr', 'red'); gridX('lb-keyg', 'green');
-      $('st-start').value = s.potion_start_pct; $('v-start').textContent = s.potion_start_pct + '%';
-      $('st-goal').value = s.recover_to_pct; $('v-goal').textContent = s.recover_to_pct + '%';
-      $('st-danger').value = s.danger_pct; $('v-danger').textContent = s.danger_pct + '%';
+      $('st-start').value = s.potion_start_pct;
+      $('st-goal').value = s.recover_to_pct;
+      $('st-danger').value = s.danger_pct;
       chain = s.chain_max; $('v-chain').textContent = chain;
       on = s.enabled; $('st-on').classList.toggle('on', on);
     } catch (e) {}
