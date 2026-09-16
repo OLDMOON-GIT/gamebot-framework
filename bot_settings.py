@@ -81,14 +81,85 @@ DEFAULTS = {
     "search_range": 10,
     "no_target_sec": 10,
     "target_timeout_sec": 60,
+    "characterClass": "knight",
+    "characterLevel": 27,
+    "weaponType": "sword1h",
+    "classProfiles": {},
+    "buff_wisdom": True,
+    "buff_wisdom_key": "",
+    "buff_blue": True,
+    "buff_blue_key": "",
+    "preferredTransformId": "orc_scout",
+    "fallbackTransformId": "skeleton_archer",
+    "transformFavorites": [],
+    "transformHistory": [],
+    "transformTab": "recent",
+    "transformKey": "F3",
+    "transformDetectionMode": "HYBRID",
+    "transformReuseBeforeSec": 20,
+    "transformRetryMax": 1,
+    "transformNoScrollAction": "continue",
+    "transformScrollKind": "NORMAL_SCROLL",
+    "transformStatus": "idle",
 }
+
+PROFILE_KEYS = [
+    "main_potion", "emergency_potion", "backup_potion", "fallback_potion",
+    "potion_key", "potion_key_alt", "return_key",
+    "potion_start_pct", "emergency_pct", "red_pct", "danger_pct",
+    "buff_green", "buff_green_kind", "buff_green_key",
+    "buff_haste2", "buff_haste2_kind", "buff_haste2_key",
+    "buff_wisdom", "buff_wisdom_key", "buff_blue", "buff_blue_key",
+    "shapechange", "shapechange_key", "shapechange_form",
+    "preferredTransformId", "fallbackTransformId",
+    "transformFavorites", "transformHistory", "transformKey",
+    "weaponType",
+]
+
+
+def snapshot_profile(data):
+    return {k: data.get(k) for k in PROFILE_KEYS}
+
+
+def apply_profile(data, profile):
+    for k, v in (profile or {}).items():
+        if k in PROFILE_KEYS:
+            data[k] = v
+    return data
+
+
+def switch_class(data, new_class):
+    """클래스 전환 — 이전 클래스 설정을 보존하고 새 클래스를 복원."""
+    from class_config import CLASS_CONFIG
+    data = dict(data)
+    old = data.get("characterClass") or "knight"
+    profiles = dict(data.get("classProfiles") or {})
+    if old:
+        profiles[old] = snapshot_profile(data)
+    data["classProfiles"] = profiles
+    data["characterClass"] = new_class
+    if new_class in profiles:
+        apply_profile(data, profiles[new_class])
+    else:
+        cfg = CLASS_CONFIG.get(new_class) or {}
+        haste2 = next((b for b in cfg.get("buffs") or [] if b.get("id") == "haste2"), None)
+        if haste2:
+            data["buff_haste2"] = True
+            data["buff_haste2_kind"] = haste2.get("name")
+    return data
 
 _cache = {"t": 0.0, "data": dict(DEFAULTS)}
 
 
 def _with_catalog(data):
+    from class_config import CLASS_CONFIG, CLASSES, WEAPONS
+    from transform_data import TRANSFORM_DATA
     out = dict(data)
     out["potions"] = POTIONS
+    out["classConfig"] = CLASS_CONFIG
+    out["classes"] = CLASSES
+    out["weapons"] = WEAPONS
+    out["transforms"] = TRANSFORM_DATA
     return out
 
 
@@ -118,6 +189,10 @@ def save(payload):
     except (OSError, ValueError):
         pass
     data.update({k: v for k, v in payload.items() if k in DEFAULTS})
+    if isinstance(payload.get("classProfiles"), dict):
+        merged = dict(data.get("classProfiles") or {})
+        merged.update(payload["classProfiles"])
+        data["classProfiles"] = merged
     os.makedirs(os.path.dirname(PATH), exist_ok=True)
     with open(PATH, "w") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)

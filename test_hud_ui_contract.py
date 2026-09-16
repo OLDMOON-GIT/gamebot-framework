@@ -32,7 +32,7 @@ def test_게임실행_버튼과_같은_부모에_붙인다():
 
 def test_아코디언이_없다():
     assert "classList.toggle('open'" not in SRC
-    assert "display:none" not in SRC.split("function installHudUi")[-1]
+    assert "#lb-opts{display:none" not in SRC
 
 
 def test_중복_id가_없다():
@@ -60,6 +60,15 @@ def test_필수_설정_필드가_저장된다():
     ):
         assert key in SRC
         assert key in bot_settings.DEFAULTS
+
+
+def test_클래스와_변신_데이터가_HUD에_연결된다():
+    assert "st-class" in SRC
+    assert "classProfiles" in SRC
+    assert "function changeClass" in SRC
+    assert "function renderBuffs" in SRC
+    assert "function listedTransforms" in SRC
+    assert "preferredTransformId" in bot_settings.DEFAULTS
 
 
 def test_일반물약_기본이_주홍_F5다():

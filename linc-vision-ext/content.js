@@ -269,6 +269,26 @@
       main:'F5', emg:'F6', fb:'F4', ret:'F8',
       buff1:'', buff2:'F9', shape:'F3', anti:'F2'
     };
+    let CLASS_CONFIG = {};
+    let CLASSES = [
+      {id:'prince', name:'군주'}, {id:'knight', name:'기사'},
+      {id:'elf', name:'요정'}, {id:'wizard', name:'마법사'}
+    ];
+    let WEAPONS = [
+      {id:'sword1h', name:'한손검'}, {id:'sword2h', name:'양손검'},
+      {id:'bow', name:'활'}, {id:'spear', name:'창'},
+      {id:'staff', name:'지팡이'}, {id:'dagger', name:'단검'}, {id:'other', name:'기타'}
+    ];
+    let TRANSFORMS = [];
+    let classProfiles = {};
+    let tFav = [];
+    let tHist = [];
+    let tTab = 'recent';
+    let preferredId = 'orc_scout';
+    let fallbackId = 'skeleton_archer';
+    let charClass = 'knight';
+    const buffOn = {};
+    const buffKey = {};
 
     const css = document.createElement('style');
     css.id = 'linc-hud-css';
@@ -293,7 +313,18 @@
 #lh-bar{width:100%;height:10px;background:#10131c;border-radius:6px;overflow:hidden;border:1px solid #000}
 #lh-fill{height:100%;width:0;background:linear-gradient(90deg,#37d67a,#8ff5b3)}
 #lh-hp{font-size:var(--linc-font-hp);font-weight:700;line-height:1.1;margin-top:4px}
+#lh-mp{font-size:22px;font-weight:700;line-height:1.1;margin-top:2px;display:none}
+#linc-hud.wizard #lh-mp{display:block}
 #lh-sub{color:var(--linc-muted);font-size:var(--linc-font-caption);margin-top:2px}
+.lh-tabs{display:flex;gap:4px;margin:6px 0}
+.lh-tab{flex:1;height:26px;border:1px solid var(--linc-border);background:var(--linc-control-bg);color:var(--linc-muted);border-radius:5px;font-size:11px;cursor:pointer}
+.lh-tab.on{background:var(--linc-active);color:#fff;border-color:var(--linc-accent)}
+.lh-tlist{max-height:160px;overflow-y:auto;overflow-x:hidden;border:1px solid var(--linc-border);border-radius:6px}
+.lh-titem{display:flex;align-items:center;gap:6px;padding:5px 8px;font-size:12px;cursor:pointer;border-bottom:1px solid #1c2430}
+.lh-titem.sel{background:#1e2a3d}
+.lh-star{width:22px;height:22px;border:0;background:transparent;color:#8a94a6;cursor:pointer;font-size:14px}
+.lh-star.on{color:#f5c542}
+#st-tsearch{width:100%;height:28px;margin:4px 0;background:var(--linc-control-bg);color:var(--linc-text);border:1px solid var(--linc-border);border-radius:5px;padding:0 8px;font-size:12px}
 #lh-warn{color:#ff8a8a;font-size:var(--linc-font-caption);min-height:14px;margin-top:4px}
 .lh-sec{font-size:var(--linc-font-section);font-weight:700;color:var(--linc-accent);margin:var(--linc-gap-lg) 0 var(--linc-gap-sm);padding-top:var(--linc-gap-md);border-top:1px solid var(--linc-border)}
 .lh-row{display:flex;align-items:center;gap:var(--linc-gap-sm);margin:var(--linc-gap-sm) 0;min-width:0}
@@ -320,8 +351,13 @@
 <div class="lh-head"><span id="lh-title">LINC-HUD</span><button id="lh-gear" title="설정">⚙</button></div>
 <div id="lh-bar"><div id="lh-fill"></div></div>
 <div id="lh-hp">HP --%</div>
+<div id="lh-mp">MP --%</div>
 <div id="lh-sub">봇 대기 중</div>
 <div id="lh-warn"></div>
+<div class="lh-sec">캐릭터</div>
+<div class="lh-row"><label>클래스</label><select id="st-class"></select></div>
+<div class="lh-row"><label>레벨</label><input id="st-level" type="number" min="1" max="99" value="27"></div>
+<div class="lh-row"><label>무기</label><select id="st-weapon"></select></div>
 <div class="lh-sec">💉 물약</div>
 <div class="lh-row"><label>일반 물약</label><select id="st-kind-main"></select></div>
 <div class="lh-note" id="note-main"></div>
@@ -349,15 +385,24 @@
 <div class="lh-row"><label>아데나만</label><div class="lh-tog" id="st-adena"></div></div>
 <div class="lh-row"><label>획득 무게 제한</label><input id="st-pickup-w" type="number" min="10" max="99" value="70"><span class="lh-note">%</span></div>
 <div class="lh-sec">⚡ 버프</div>
-<div class="lh-row"><label>1단 가속</label><div class="lh-tog on" id="st-buff1"></div></div>
-<div class="lh-row"><label>초록 물약</label><select id="st-buff1-kind"><option>초록 물약</option><option>강화 초록 물약</option></select></div>
-<div class="lh-keys" id="lh-key-buff1"></div>
-<div class="lh-row"><label>2단 가속</label><div class="lh-tog on" id="st-buff2"></div></div>
-<div class="lh-row"><label>종류</label><select id="st-buff2-kind"><option>악마의 피</option><option>용기의 물약</option><option>엘븐 와퍼</option></select></div>
-<div class="lh-keys" id="lh-key-buff2"></div>
+<div id="lh-buff-box"></div>
+<div class="lh-sec">👤 변신</div>
 <div class="lh-row"><label>변신 유지</label><div class="lh-tog on" id="st-shape"></div></div>
-<div class="lh-row"><label>변신</label><select id="st-shape-form"><option>오크 스카우트</option><option>늑대인간</option><option>스켈레톤</option></select></div>
+<div class="lh-row"><label>주문서</label></div>
 <div class="lh-keys" id="lh-key-shape"></div>
+<div class="lh-row"><label>주 선호</label><span id="lh-pref" class="lh-note">-</span></div>
+<div class="lh-note" id="lh-tstatus">○ 변신 확인 중</div>
+<div class="lh-tabs">
+  <button class="lh-tab on" data-tab="recent" type="button">최근</button>
+  <button class="lh-tab" data-tab="fav" type="button">★ 즐겨찾기</button>
+  <button class="lh-tab" data-tab="all" type="button">전체</button>
+</div>
+<input id="st-tsearch" placeholder="변신 검색" autocomplete="off">
+<div class="lh-tlist" id="lh-tlist"></div>
+<div class="lh-row"><label>만료 전 재사용</label><div class="lh-tog on" id="st-treuse"></div></div>
+<div class="lh-row"><label>남은 시간</label><input id="st-treuse-sec" type="number" min="5" max="120" value="20"><span class="lh-note">초</span></div>
+<div class="lh-row"><label>실패 재시도</label><input id="st-tretry" type="number" min="0" max="3" value="1"><span class="lh-note">회</span></div>
+<div class="lh-row"><label>주문서 없음</label><select id="st-tnoscroll"><option value="continue">변신 없이 계속 사냥</option><option value="stop">BOT 중지</option></select></div>
 <div class="lh-row"><label>자동 해독</label><div class="lh-tog on" id="st-anti"></div></div>
 <div class="lh-keys" id="lh-key-anti"></div>
 <div class="lh-sec">⚔ 사냥</div>
@@ -407,10 +452,208 @@
       paintGrid('lh-key-emg','emg',false);
       paintGrid('lh-key-fb','fb',true);
       paintGrid('lh-key-return','ret',false);
-      paintGrid('lh-key-buff1','buff1',true);
-      paintGrid('lh-key-buff2','buff2',true);
       paintGrid('lh-key-shape','shape',true);
       paintGrid('lh-key-anti','anti',true);
+    }
+    function fillSelect(id, items, value) {
+      const el = $(id); if (!el) return;
+      el.innerHTML = items.map(it => '<option value="'+it.id+'">'+(it.name||it.id)+'</option>').join('');
+      if (value) el.value = value;
+    }
+    function tById(id) { return TRANSFORMS.find(t => t.id === id); }
+    function eligibleT(t) {
+      const lv = +($('st-level') && $('st-level').value || 27);
+      const w = ($('st-weapon') && $('st-weapon').value) || 'sword1h';
+      if ((t.minLevel || 1) > lv) return false;
+      const wts = t.weaponTypes || ['any'];
+      if (wts.indexOf('any') < 0 && wts.indexOf(w) < 0) return false;
+      const cls = t.classes || ['any'];
+      if (cls.indexOf('any') < 0 && cls.indexOf(charClass) < 0) return false;
+      return true;
+    }
+    function histAt(id) {
+      const h = tHist.find(x => x.id === id);
+      return h ? (h.lastUsedAt || 0) : 0;
+    }
+    function ago(ts) {
+      if (!ts) return '';
+      const d = Date.now() - ts;
+      if (d < 120000) return '방금';
+      if (d < 3600000) return Math.round(d/60000) + '분 전';
+      if (d < 86400000) return Math.round(d/3600000) + '시간 전';
+      return Math.round(d/86400000) + '일 전';
+    }
+    function listedTransforms() {
+      let list = TRANSFORMS.filter(eligibleT);
+      const q = (($('st-tsearch') && $('st-tsearch').value) || '').trim();
+      if (q) {
+        const qq = q.toLowerCase();
+        list = list.filter(t => (t.name||'').toLowerCase().indexOf(qq) >= 0
+          || (t.id||'').toLowerCase().indexOf(qq) >= 0
+          || (t.weaponTypes||[]).join(' ').indexOf(qq) >= 0);
+      }
+      if (tTab === 'fav') list = list.filter(t => tFav.indexOf(t.id) >= 0);
+      list = list.slice().sort((a,b) => histAt(b.id) - histAt(a.id));
+      if (tTab === 'recent') {
+        const rec = list.filter(t => histAt(t.id) > 0).slice(0, 10);
+        if (rec.length) list = rec;
+      }
+      return list;
+    }
+    function markUsed(id) {
+      if (!id) return;
+      const now = Date.now();
+      const hit = tHist.find(x => x.id === id);
+      if (hit) { hit.lastUsedAt = now; hit.useCount = (hit.useCount||0)+1; }
+      else tHist.push({id, lastUsedAt: now, useCount: 1});
+      tHist.sort((a,b) => (b.lastUsedAt||0)-(a.lastUsedAt||0));
+      tHist = tHist.slice(0, 30);
+      preferredId = preferredId || id;
+    }
+    function renderTransforms() {
+      const box = $('lh-tlist'); if (!box) return;
+      const list = listedTransforms();
+      box.innerHTML = list.map(t => {
+        const star = tFav.indexOf(t.id) >= 0;
+        const selc = t.id === preferredId ? ' sel' : '';
+        return '<div class="lh-titem'+selc+'" data-id="'+t.id+'">'
+          + '<button type="button" class="lh-star'+(star?' on':'')+'" data-star="'+t.id+'">'+(star?'★':'☆')+'</button>'
+          + '<span style="flex:1">'+t.name+'</span>'
+          + '<span class="lh-note">'+ago(histAt(t.id))+'</span></div>';
+      }).join('') || '<div class="lh-note" style="padding:8px">조건에 맞는 변신 없음</div>';
+      box.querySelectorAll('.lh-titem').forEach(row => {
+        row.onclick = (e) => {
+          if (e.target && e.target.dataset.star) return;
+          preferredId = row.dataset.id;
+          markUsed(preferredId);
+          renderTransforms();
+          syncPref();
+        };
+      });
+      box.querySelectorAll('[data-star]').forEach(b => {
+        b.onclick = (e) => {
+          e.stopPropagation();
+          const id = b.dataset.star;
+          const i = tFav.indexOf(id);
+          if (i >= 0) tFav.splice(i,1); else tFav.push(id);
+          renderTransforms();
+        };
+      });
+      document.querySelectorAll('.lh-tab').forEach(tb => tb.classList.toggle('on', tb.dataset.tab === tTab));
+      syncPref();
+    }
+    function syncPref() {
+      const t = tById(preferredId);
+      if ($('lh-pref')) $('lh-pref').textContent = t ? ('★ ' + t.name) : '-';
+    }
+    function renderBuffs() {
+      const box = $('lh-buff-box'); if (!box) return;
+      const cfg = CLASS_CONFIG[charClass] || CLASS_CONFIG.knight || {buffs:[]};
+      box.innerHTML = (cfg.buffs || []).map(b => {
+        const on = buffOn[b.id] !== false;
+        const key = buffKey[b.id] || '';
+        let extra = '';
+        if (b.variants) {
+          extra = '<div class="lh-row"><label>종류</label><select data-bvar="'+b.id+'">'
+            + b.variants.map(v => '<option value="'+v.name+'">'+v.name+'</option>').join('')
+            + '</select></div>';
+        }
+        return '<div class="lh-b" data-bid="'+b.id+'">'
+          + '<div class="lh-row"><label>'+(b.name||b.label)+'</label>'
+          + '<div class="lh-tog'+(on?' on':'')+'" data-btog="'+b.id+'"></div></div>'
+          + '<div class="lh-note">'+(b.note || (b.durationMin ? ('지속 약 '+b.durationMin+'분') : ''))+'</div>'
+          + extra
+          + '<div class="lh-keys" data-bkeys="'+b.id+'"></div></div>';
+      }).join('');
+      box.querySelectorAll('[data-btog]').forEach(el => {
+        el.onclick = () => {
+          el.classList.toggle('on');
+          buffOn[el.dataset.btog] = el.classList.contains('on');
+        };
+      });
+      box.querySelectorAll('[data-bkeys]').forEach(el => {
+        const id = el.dataset.bkeys;
+        const cur = buffKey[id] || '';
+        el.innerHTML = '<div class="lh-key'+(cur===''?' sel':'')+'" data-k="">-</div>'
+          + KEYS.map(k => '<div class="lh-key'+(cur===k?' sel':'')+'" data-k="'+k+'">'+k+'</div>').join('');
+        el.querySelectorAll('.lh-key').forEach(b => {
+          b.onclick = () => {
+            buffKey[id] = b.dataset.k;
+            el.querySelectorAll('.lh-key').forEach(x => x.classList.toggle('sel', x === b));
+          };
+        });
+      });
+      panel.classList.toggle('wizard', charClass === 'wizard');
+    }
+    function snapshotNow() {
+      return {
+        main_potion: { key: sel.main, kind: ($('st-kind-main')||{}).value || '주홍' },
+        emergency_potion: { key: sel.emg, kind: ($('st-kind-emg')||{}).value || '맑은' },
+        backup_potion: { key: sel.emg, kind: ($('st-kind-emg')||{}).value || '맑은' },
+        fallback_potion: { key: sel.fb, kind: ($('st-kind-fb')||{}).value || '' },
+        potion_key: sel.main, potion_key_alt: sel.emg, return_key: sel.ret,
+        potion_start_pct: +(($('st-hp-main')||{}).value || 80),
+        emergency_pct: +(($('st-hp-emg')||{}).value || 45),
+        danger_pct: +(($('st-danger')||{}).value || 20),
+        buff_green: buffOn.haste1 !== false,
+        buff_green_kind: (panel.querySelector('[data-bvar="haste1"]')||{}).value || '초록 물약',
+        buff_green_key: buffKey.haste1 || '',
+        buff_haste2: buffOn.haste2 !== false,
+        buff_haste2_kind: ((CLASS_CONFIG[charClass]||{}).buffs||[]).filter(b=>b.id==='haste2')[0] ? ((CLASS_CONFIG[charClass]||{}).buffs||[]).filter(b=>b.id==='haste2')[0].name : '',
+        buff_haste2_key: buffKey.haste2 || '',
+        buff_wisdom: buffOn.wisdom !== false,
+        buff_wisdom_key: buffKey.wisdom || '',
+        buff_blue: buffOn.blue !== false,
+        buff_blue_key: buffKey.blue || '',
+        shapechange: isOn('st-shape'),
+        shapechange_key: sel.shape,
+        preferredTransformId: preferredId,
+        fallbackTransformId: fallbackId,
+        transformFavorites: tFav.slice(),
+        transformHistory: tHist.slice(),
+        transformKey: sel.shape,
+        weaponType: ($('st-weapon')||{}).value || 'sword1h',
+      };
+    }
+    function applySnap(p) {
+      if (!p) return;
+      if (p.main_potion) { sel.main = p.main_potion.key || sel.main; if (p.main_potion.kind && $('st-kind-main')) $('st-kind-main').value = p.main_potion.kind; }
+      if (p.emergency_potion) { sel.emg = p.emergency_potion.key || sel.emg; if (p.emergency_potion.kind && $('st-kind-emg')) $('st-kind-emg').value = p.emergency_potion.kind; }
+      if (p.fallback_potion) sel.fb = p.fallback_potion.key || sel.fb;
+      if (p.return_key) sel.ret = p.return_key;
+      if (p.potion_start_pct != null && $('st-hp-main')) $('st-hp-main').value = p.potion_start_pct;
+      if (p.emergency_pct != null && $('st-hp-emg')) $('st-hp-emg').value = p.emergency_pct;
+      if (p.danger_pct != null && $('st-danger')) $('st-danger').value = p.danger_pct;
+      buffOn.haste1 = p.buff_green !== false;
+      buffOn.haste2 = p.buff_haste2 !== false;
+      buffOn.wisdom = p.buff_wisdom !== false;
+      buffOn.blue = p.buff_blue !== false;
+      buffKey.haste1 = p.buff_green_key || '';
+      buffKey.haste2 = p.buff_haste2_key || '';
+      buffKey.wisdom = p.buff_wisdom_key || '';
+      buffKey.blue = p.buff_blue_key || '';
+      if (p.shapechange_key) sel.shape = p.shapechange_key;
+      if (p.preferredTransformId) preferredId = p.preferredTransformId;
+      if (p.fallbackTransformId) fallbackId = p.fallbackTransformId;
+      if (Array.isArray(p.transformFavorites)) tFav = p.transformFavorites.slice();
+      if (Array.isArray(p.transformHistory)) tHist = p.transformHistory.slice();
+      if (p.weaponType && $('st-weapon')) $('st-weapon').value = p.weaponType;
+      if ($('st-shape')) $('st-shape').classList.toggle('on', p.shapechange !== false);
+    }
+    function changeClass(next) {
+      classProfiles[charClass] = snapshotNow();
+      charClass = next;
+      if (classProfiles[charClass]) applySnap(classProfiles[charClass]);
+      else {
+        const cfg = CLASS_CONFIG[charClass] || {};
+        const h2 = (cfg.buffs||[]).find(b => b.id === 'haste2');
+        if (h2) { buffOn.haste2 = true; }
+      }
+      renderBuffs();
+      renderTransforms();
+      paintAll();
+      syncNotes();
+      if ($('lh-save') && $('lh-save').onclick) $('lh-save').onclick();
     }
     function findLaunchButton() {
       return [...document.querySelectorAll('button')].find(b =>
@@ -461,15 +704,30 @@
     $('st-kind-emg').onchange = syncNotes;
     syncNotes();
     paintAll();
-    ['st-fallback','st-return','st-empty-return','st-weight-return','st-pickup','st-buff1','st-buff2','st-shape','st-anti','st-attack','st-aggro','st-manner','st-on'].forEach(id => tog(id, true));
+    fillSelect('st-class', CLASSES, 'knight');
+    fillSelect('st-weapon', WEAPONS, 'sword1h');
+    ['st-fallback','st-return','st-empty-return','st-weight-return','st-pickup','st-shape','st-anti','st-attack','st-aggro','st-manner','st-on','st-treuse'].forEach(id => tog(id, true));
     tog('st-idle-return', false);
     tog('st-pickup-pri', false);
     tog('st-adena', false);
+    renderBuffs();
+    renderTransforms();
+    if ($('st-class')) $('st-class').onchange = () => changeClass($('st-class').value);
+    if ($('st-weapon')) $('st-weapon').onchange = () => renderTransforms();
+    if ($('st-level')) $('st-level').onchange = () => renderTransforms();
+    if ($('st-tsearch')) $('st-tsearch').oninput = () => renderTransforms();
+    document.querySelectorAll('.lh-tab').forEach(tb => {
+      tb.onclick = () => { tTab = tb.dataset.tab; renderTransforms(); };
+    });
 
     function applyCatalog(s) {
       if (s && s.potions) {
         Object.keys(s.potions).forEach(k => { POTIONS[k] = s.potions[k]; });
       }
+      if (s && s.classConfig) CLASS_CONFIG = s.classConfig;
+      if (s && s.classes) CLASSES = s.classes;
+      if (s && s.weapons) WEAPONS = s.weapons;
+      if (s && s.transforms) TRANSFORMS = s.transforms;
     }
     async function loadSet() {
       try {
@@ -482,10 +740,28 @@
         sel.emg = ep.key || sel.emg;
         sel.fb = fp.key || sel.fb;
         sel.ret = s.return_key || sel.ret;
-        sel.buff1 = s.buff_green_key || '';
-        sel.buff2 = s.buff_haste2_key || 'F9';
-        sel.shape = s.shapechange_key || 'F3';
+        sel.shape = s.shapechange_key || s.transformKey || 'F3';
         sel.anti = s.antidote_key || 'F2';
+        charClass = s.characterClass || 'knight';
+        classProfiles = s.classProfiles || {};
+        tFav = Array.isArray(s.transformFavorites) ? s.transformFavorites.slice() : [];
+        tHist = Array.isArray(s.transformHistory) ? s.transformHistory.slice() : [];
+        preferredId = s.preferredTransformId || preferredId;
+        fallbackId = s.fallbackTransformId || fallbackId;
+        buffOn.haste1 = s.buff_green !== false;
+        buffOn.haste2 = s.buff_haste2 !== false;
+        buffOn.wisdom = s.buff_wisdom !== false;
+        buffOn.blue = s.buff_blue !== false;
+        buffKey.haste1 = s.buff_green_key || '';
+        buffKey.haste2 = s.buff_haste2_key || '';
+        buffKey.wisdom = s.buff_wisdom_key || '';
+        buffKey.blue = s.buff_blue_key || '';
+        fillSelect('st-class', CLASSES, charClass);
+        fillSelect('st-weapon', WEAPONS, s.weaponType || 'sword1h');
+        if ($('st-level') && s.characterLevel != null) $('st-level').value = s.characterLevel;
+        if ($('st-treuse-sec') && s.transformReuseBeforeSec != null) $('st-treuse-sec').value = s.transformReuseBeforeSec;
+        if ($('st-tretry') && s.transformRetryMax != null) $('st-tretry').value = s.transformRetryMax;
+        if ($('st-tnoscroll') && s.transformNoScrollAction) $('st-tnoscroll').value = s.transformNoScrollAction;
         if (POTIONS[mp.kind]) $('st-kind-main').value = mp.kind;
         if (POTIONS[ep.kind]) $('st-kind-emg').value = ep.kind;
         if (POTIONS[fp.kind] || fp.kind === '') $('st-kind-fb').value = fp.kind || '';
@@ -498,22 +774,20 @@
         $('st-range').value = s.search_range != null ? s.search_range : 10;
         $('st-notarget').value = s.no_target_sec != null ? s.no_target_sec : 10;
         $('st-timeout').value = s.target_timeout_sec != null ? s.target_timeout_sec : 60;
-        if (s.buff_green_kind) $('st-buff1-kind').value = s.buff_green_kind;
-        if (s.buff_haste2_kind) $('st-buff2-kind').value = s.buff_haste2_kind;
-        if (s.shapechange_form) $('st-shape-form').value = s.shapechange_form;
         const flags = {
           'st-fallback': s.fallback_on_empty, 'st-return': s.return_enabled,
           'st-empty-return': s.potion_empty_return, 'st-weight-return': s.weight_return,
           'st-idle-return': s.no_combat_return, 'st-pickup': s.pickup_enabled,
           'st-pickup-pri': s.pickup_priority, 'st-adena': s.adena_only,
-          'st-buff1': s.buff_green, 'st-buff2': s.buff_haste2,
           'st-shape': s.shapechange, 'st-anti': s.antidote,
           'st-attack': s.auto_attack, 'st-aggro': s.aggro_first,
           'st-manner': s.manner_hunt, 'st-on': s.enabled
         };
-        Object.keys(flags).forEach(id => { if (flags[id] != null) $(id).classList.toggle('on', !!flags[id]); });
+        Object.keys(flags).forEach(id => { if (flags[id] != null && $(id)) $(id).classList.toggle('on', !!flags[id]); });
         syncNotes();
         paintAll();
+        renderBuffs();
+        renderTransforms();
       } catch (e) { console.log('[linc-hud] settings load fail', e && e.message); }
     }
     $('lh-save').onclick = async () => {
@@ -541,15 +815,30 @@
         pickup_priority: isOn('st-pickup-pri'),
         adena_only: isOn('st-adena'),
         pickup_weight_pct: +$('st-pickup-w').value,
-        buff_green: isOn('st-buff1'),
-        buff_green_kind: $('st-buff1-kind').value,
-        buff_green_key: sel.buff1,
-        buff_haste2: isOn('st-buff2'),
-        buff_haste2_kind: $('st-buff2-kind').value,
-        buff_haste2_key: sel.buff2,
+        characterClass: charClass,
+        characterLevel: +(($('st-level')||{}).value || 27),
+        weaponType: ($('st-weapon')||{}).value || 'sword1h',
+        classProfiles: Object.assign({}, classProfiles, {[charClass]: snapshotNow()}),
+        buff_green: buffOn.haste1 !== false,
+        buff_green_kind: (panel.querySelector('[data-bvar="haste1"]')||{}).value || '초록 물약',
+        buff_green_key: buffKey.haste1 || '',
+        buff_haste2: buffOn.haste2 !== false,
+        buff_haste2_kind: (((CLASS_CONFIG[charClass]||{}).buffs||[]).find(b=>b.id==='haste2')||{}).name || '',
+        buff_haste2_key: buffKey.haste2 || '',
+        buff_wisdom: buffOn.wisdom !== false,
+        buff_wisdom_key: buffKey.wisdom || '',
+        buff_blue: buffOn.blue !== false,
+        buff_blue_key: buffKey.blue || '',
         shapechange: isOn('st-shape'),
         shapechange_key: sel.shape,
-        shapechange_form: $('st-shape-form').value,
+        preferredTransformId: preferredId,
+        fallbackTransformId: fallbackId,
+        transformFavorites: tFav,
+        transformHistory: tHist,
+        transformKey: sel.shape,
+        transformReuseBeforeSec: +(($('st-treuse-sec')||{}).value || 20),
+        transformRetryMax: +(($('st-tretry')||{}).value || 1),
+        transformNoScrollAction: ($('st-tnoscroll')||{}).value || 'continue',
         antidote: isOn('st-anti'),
         antidote_key: sel.anti,
         auto_attack: isOn('st-attack'),
@@ -582,11 +871,14 @@
         } else {
           $('lh-hp').textContent = 'HP --%';
         }
+        let mp = null;
+        if (r.bot && r.bot.mp != null) mp = r.bot.mp;
+        else if (typeof r.mp === 'number') mp = r.mp;
+        if ($('lh-mp')) $('lh-mp').textContent = (mp != null && Number.isFinite(mp)) ? ('MP ' + Math.round(mp * 100) + '%') : 'MP --%';
         const bits = [];
         if (r.bot) bits.push('사냥 중');
         else bits.push('봇 대기 중');
-        if (r.bot && r.bot.mp != null) bits.push('MP ' + Math.round(r.bot.mp * 100) + '%');
-        else if (typeof r.mp === 'number') bits.push('MP ' + Math.round(r.mp * 100) + '%');
+        if (mp != null && Number.isFinite(mp) && charClass !== 'wizard') bits.push('MP ' + Math.round(mp * 100) + '%');
         if (r.bot && r.bot.weight != null) bits.push('무게 ' + Math.round(r.bot.weight * 100) + '%');
         else if (typeof r.weight === 'number') bits.push('무게 ' + Math.round(r.weight * 100) + '%');
         $('lh-sub').textContent = bits.join(' · ');
