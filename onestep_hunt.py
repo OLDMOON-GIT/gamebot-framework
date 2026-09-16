@@ -17,12 +17,16 @@ from cdp_window import CdpWindow, EXT_PORT
 from linux_vision import find_character, hp_read, red_name_candidates
 from potion_keys import EXHAUSTED, USED, PotionKeys
 from user_gate import user_active
+from hunt_priority import RETURN, STOP, decide
+from bot_settings import load as load_settings
+from attack_skills import next_skill
+from func_items import next_item
 
 RUNTIME = Path("/tmp/linc-bot-linux")
 STOP = RUNTIME / "stop"
 NOMOUSE = RUNTIME / "nomouse"   # 마우스 클릭 전면 금지(사용자 지시 2026-09-15)
 NEAR_RADIUS = 260            # 한 칸~두 칸: 캐릭터 중심 이 반경 몹만
-EXT_HP_URL = "http://127.0.0.1:17311/hp?scale=4"
+EXT_HP_URL = "http://127.0.0.1:17311/hp"
 
 
 def log(msg):
@@ -260,6 +264,9 @@ def main():
     hp_unread = 0
     prev = None
     potion = PotionKeys(read=read_hp_source)
+    last_combat = time.monotonic()
+    skill_last, skill_count = {}, {}
+    func_last = {}
     while not STOP.exists():
         try:
             if not w.active():
@@ -279,6 +286,28 @@ def main():
                 time.sleep(2.5)
                 continue
             hp_unread = 0
+            settings = load_settings()
+            now = time.monotonic()
+            act = decide({
+                "window_ok": True,
+                "dead": hp is not None and hp <= 0.01,
+                "hp": hp,
+                "mp": None,
+                "weight": None,
+                "last_combat_age_sec": now - last_combat,
+                "potions_empty": False,
+            }, settings)
+            if act.kind == STOP:
+                log(act.reason + " — 사냥 중단")
+                break
+            if act.kind == RETURN:
+                log(f"{act.reason} ({act.key})")
+                try:
+                    w.key(act.key)
+                except Exception as exc:
+                    log(f"귀환 키 실패: {exc}")
+                time.sleep(1.0)
+                continue
             if NOMOUSE.exists():
                 # 마우스 금지 모드(사용자 지시): 몹 클릭·이탈 클릭 모두
                 # 하지 않는다. 물약(F5 키)은 마우스가 아니므로 계속
@@ -292,16 +321,28 @@ def main():
                 # 종전 2.0초 대비 감지 지연 1/3.
                 time.sleep(0.35)
                 continue
-            if hp < 0.45:
-                log(f"HP 위험({hp:.2f}): 이탈 이동")
-                yield_click(w, 620, 400)  # 한 칸 원칙이지만 생존 우선
-                time.sleep(2.5)
-                continue
             result = potion.check(w, hp)
             if result == EXHAUSTED:
                 log("물약 재고 소진 — 사냥 중단(사망 방지)")
                 break
             potion_delayed = result == USED  # 물약 후에도 몹 공격은 이어간다
+            sk = next_skill(settings.get("attack_skills") or [], hp, None, now, skill_last, skill_count)
+            if sk and sk.get("key"):
+                try:
+                    w.key(sk["key"])
+                    skill_last[sk["id"]] = now
+                    skill_count[sk["id"]] = skill_count.get(sk["id"], 0) + 1
+                    log(f"공격 마법 {sk.get('name')} ({sk['key']})")
+                except Exception as exc:
+                    log(f"스킬 키 실패: {exc}")
+            fi = next_item(settings.get("func_items") or [], now, func_last, {"hp": hp})
+            if fi and fi.get("hotkey"):
+                try:
+                    w.key(fi["hotkey"])
+                    func_last[fi.get("itemId") or fi.get("name")] = now
+                    log(f"기능 아이템 {fi.get('name')} ({fi['hotkey']})")
+                except Exception as exc:
+                    log(f"기능 아이템 키 실패: {exc}")
             if prev is None or prev.shape != cur.shape:
                 prev = cur
                 time.sleep(2.5)
@@ -314,6 +355,7 @@ def main():
                 continue
             mx, my, area = mobs[0]
             yield_click(w, mx, my)
+            last_combat = time.monotonic()
             kills += 1
             main.kills = kills
             log(f"근접 몹 공격 #{kills}: ({mx},{my}) 면적={area} HP={hp}")

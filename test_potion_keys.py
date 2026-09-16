@@ -76,6 +76,13 @@ class TestPotionKeys(unittest.TestCase):
         self.assertEqual(self._armed(p, 0.79), USED)
         self.assertEqual(self._presses(), ["F5", "F6"])
 
+    def test_2차임계면_위급키를_먼저_누른다(self):
+        p = self._potion(lambda img: 0.95)
+        p._backup_key = "F6"
+        p._red_pct = 0.45
+        self.assertEqual(self._armed(p, 0.40), USED)
+        self.assertEqual(self._presses(), ["F6"])
+
     def test_쿨다운_중에는_재누름이_막힌다(self):
         p = self._potion(lambda img: 0.95)
         p._probe_idx = 99
@@ -111,7 +118,7 @@ class TestPotionKeys(unittest.TestCase):
         p = self._potion(lambda img: next(reread))
         p._probe_idx = 99
         self.assertEqual(self._armed(p, 0.40), USED)
-        self.assertEqual(self._presses(), ["F5", "F5"])
+        self.assertEqual(self._presses(), ["F6", "F6"])
 
     def test_연속_투입은_상한이_있다(self):
         # 재판독이 계속 소폭 상승(투입 효과)해도 임계 밑이면 이어가되

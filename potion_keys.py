@@ -160,33 +160,35 @@ class PotionKeys:
         # 리니지 조사(네이버 정리): 빨간 6~27(주물약, F5 실측 +20),
         # 주홍 26~68, 맑은/엔트열매 44~107(평균 75). 보조 물약=맑은 계열
         # 확정 기준 **+28%p(≈71 HP)** — 주홍 최대 68과 분리.
-        second = self._alt_key
-        # 보조물약: F5 소진 시 F6으로(사용자 지시 2026-09-16) — HP 45% 조건 없음
-        # 사용자 지시(2026-09-16): 무조건 F5부터 — 매 턴 F5 우선, 무반응인
-        # 그 턴만 F6 폴백. F5 재고가 있으면 항상 F5가 먼저 발사된다.
-        gained, hp_after = self._try_key(window, self._first_key, hp)
+        # HP가 2차(위급) 임계 이하면 2차 키를 먼저 쓴다. 아니면 1차→폴백.
+        if hp <= self._red_pct and self._backup_key:
+            first, second = self._backup_key, self._first_key
+        else:
+            first, second = self._first_key, self._alt_key
+        use_key = first
+        gained, hp_after = self._try_key(window, first, hp)
         if gained:
             self._first_fail = 0
         else:
             self._first_fail += 1
             gained, hp_after = self._try_key(window, second, hp)
             if gained:
-                self._first_key = second
+                use_key = second
+                if not (hp <= self._red_pct and self._backup_key):
+                    self._first_key = second
         if gained:
             self._dry = 0
-            # 피가 많이 딸리면 여러 번(2026-09-15 사용자 지시): 투입 후에도
-            # 임계 밑이면 게임 재사용 대기 후 연속 투입. CHAIN_MAX 상한.
             chain = 1
             base_hp = hp
             while (hp_after is not None and hp_after < self.threshold
                    and chain < CHAIN_MAX):
                 time.sleep(CHAIN_GAP)
-                more, hp_next = self._try_key(window, self._first_key, hp_after)
+                more, hp_next = self._try_key(window, use_key, hp_after)
                 if not more:
                     break
                 chain += 1
                 hp_after = hp_next
-            log(f"물약 {self._first_key} (HP {base_hp:.2f}→{hp_after:.2f}"
+            log(f"물약 {use_key} (HP {base_hp:.2f}→{hp_after:.2f}"
                 f"{', 연속 ' + str(chain) + '회' if chain > 1 else ''})")
             return USED
         self._dry += 1
