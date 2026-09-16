@@ -21,7 +21,7 @@ PATH = "/tmp/linc-bot-linux/settings.json"
 # 맑은 44~107(고급). 랜덤 범위이며 hp_max 253 기준 평균%p.
 # 등급: 빨간 < 주홍 < 맑은 (사용자 지시 — 몇 번을 말해야 하는지 죄송)
 POTION_KINDS = {
-    "빨간": 6,     # HP 6~27 (약함)
+    "빨간": 12,    # HP 6~27, 실측 평균 +12~19%p(범위 넓음)
     "주홍": 20,    # HP 26~68 (중간)
     "맑은": 30,    # HP 44~107 (강함)
 }
@@ -35,7 +35,7 @@ DEFAULTS = {
     "orange_key": "F5",        # 구 UI(v3 3종 그리드) 호환 — 주 물약 표시
     "red_key": "",
     "green_key": "",
-    "backup_potion": {"key": "F6", "kind": "빨간", "heal_pct": 6},  # 보조 물약 기본 F6(사용자 지시)
+    "backup_potion": {"key": "F6", "kind": "빨간", "heal_pct": 19}, # 보조 물약 기본 F6, 실측 평균 +19%p
     "potion_key_alt": "F6",    # 보조(무반응 폴백)
     "return_key": "F8",        # 귀환 주문서
     "potion_start_pct": 80,    # 이 % 밑이면 물약 시작
