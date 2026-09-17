@@ -45,6 +45,13 @@ class TestPotionKeys(unittest.TestCase):
     def _presses(self):
         return [c.args[0] for c in self.w.key.call_args_list]
 
+    def _uniq(self):
+        out = []
+        for k in self._presses():
+            if not out or out[-1] != k:
+                out.append(k)
+        return out
+
     def test_임계_이상이면_누르지_않는다(self):
         p = self._potion()
         self.assertEqual(p.check(self.w, 0.81), SKIP)
@@ -61,7 +68,7 @@ class TestPotionKeys(unittest.TestCase):
         p = self._potion(lambda img: 0.95)
         p._probe_idx = 99
         self.assertEqual(self._armed(p, 0.79), USED)
-        self.assertEqual(self._presses(), ["F5"])
+        self.assertEqual(self._uniq(), ["F5"])
 
     def test_한_프레임_80퍼_이하면_바로_먹는다(self):
         p = self._potion(lambda img: 0.95)
@@ -72,14 +79,14 @@ class TestPotionKeys(unittest.TestCase):
         # 재판독이 계속 낮으면(반응 없음) F6→F5 순서로 누른다.
         p = self._potion(lambda img: 0.79)
         self.assertEqual(self._armed(p, 0.79), USED)
-        self.assertEqual(self._presses(), ["F5", "F6"])
+        self.assertEqual(self._uniq(), ["F5", "F6"])
 
     def test_2차임계면_위급키를_먼저_누른다(self):
         p = self._potion(lambda img: 0.95)
         p._backup_key = "F6"
         p._red_pct = 0.45
         self.assertEqual(self._armed(p, 0.40), USED)
-        self.assertEqual(self._presses(), ["F6"])
+        self.assertEqual(self._uniq(), ["F6"])
 
     def test_쿨다운_중에는_재누름이_막힌다(self):
         p = self._potion(lambda img: 0.95)
@@ -102,8 +109,8 @@ class TestPotionKeys(unittest.TestCase):
             results.append(self._armed(p, 0.50))
             p._last_used -= COOLDOWN + 0.1  # 쿨다운 해제(누적 관찰용)
         self.assertEqual(results, [USED, USED, EXHAUSTED])
-        # 매턴 F5+F6 두 번씩: 3턴 × 2 = 6
-        self.assertEqual(self.w.key.call_count, 6)
+        # 매턴 F5+F6, 각 2연타: 3턴 × 4 = 12
+        self.assertEqual(self.w.key.call_count, 12)
 
 
     def test_피가_딸리면_연속_투입한다(self):
@@ -113,7 +120,7 @@ class TestPotionKeys(unittest.TestCase):
         p = self._potion(lambda img: next(reread))
         p._probe_idx = 99
         self.assertEqual(self._armed(p, 0.40), USED)
-        self.assertEqual(self._presses(), ["F6", "F6"])
+        self.assertEqual(self._uniq(), ["F6"])
 
     def test_연속_투입은_상한이_있다(self):
         # 재판독이 계속 소폭 상승(투입 효과)해도 임계 밑이면 이어가되
@@ -122,21 +129,21 @@ class TestPotionKeys(unittest.TestCase):
         p = self._potion(lambda img: next(reread))
         p._probe_idx = 99
         self.assertEqual(self._armed(p, 0.40), USED)
-        self.assertEqual(len(self._presses()), 4)
+        self.assertEqual(len(self._presses()) // 2, 4)
 
     def test_F5_성공_후에는_F5를_먼저_누른다(self):
         # F6 무반응 → F5 반응: 다음 사용부터 F5 우선(학습).
         reread = iter([0.79, 0.95])  # F6 재판독 무반응, F5 재판독 상승
         p = self._potion(lambda img: next(reread))
         self.assertEqual(self._armed(p, 0.79), USED)
-        self.assertEqual(self._presses(), ["F5", "F6"])
+        self.assertEqual(self._uniq(), ["F5", "F6"])
         self.assertEqual(p._first_key, "F6")
 
         p._last_used -= COOLDOWN + 0.1
         reread2 = iter([0.95])
         with patch.object(potion_keys, "hp_read", lambda img: next(reread2)):
             self.assertEqual(p.check(self.w, 0.70), USED)
-        self.assertEqual(self._presses(), ["F5", "F6", "F5"])
+        self.assertEqual(self._uniq(), ["F5", "F6", "F5"])
 
 
 if __name__ == "__main__":

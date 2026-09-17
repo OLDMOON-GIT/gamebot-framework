@@ -96,16 +96,28 @@ class PotionKeys:
     _probe_idx = 0
 
     def _try_key(self, window, name, hp):
-        """키 하나를 누르고 재판독해 반응 여부를 돌려준다."""
+        """키를 두 번 누르고, 대기 중 최고 HP로 반응을 본다.
+
+        전투 중엔 물약이 들어가도 맞는 동안 순 HP가 안 올라 '무반응'이 된다.
+        """
         self._press(window, name)
-        # BTS-1033358: 판독기의 HP 급상승 가드를 면제시킨다. 알리지 않으면
-        # 물약이 실제로 들어가도 상승분이 한 프레임 유보되어 gained=False가
-        # 되고, 없는 '무반응'을 근거로 두 번째 키까지 눌러 물약을 2개 쓴다.
+        time.sleep(0.12)
+        self._press(window, name)
         note_recovery(POTION_WAIT + 2.0)
-        time.sleep(POTION_WAIT)
-        hp_after = (self._read(window) if self._read
-                    else hp_read(window.capture()))
-        gained = hp_after is not None and hp_after > hp + GAIN_MIN
+        peak = hp
+        hp_after = hp
+        for _ in range(3):
+            time.sleep(POTION_WAIT / 3)
+            cur = (self._read(window) if self._read
+                   else hp_read(window.capture()))
+            if cur is None:
+                continue
+            hp_after = cur
+            if cur > peak:
+                peak = cur
+                if peak > hp + GAIN_MIN:
+                    return True, peak
+        gained = peak is not None and peak > hp + GAIN_MIN
         return gained, hp_after
 
     def _apply_key_setting(self):
