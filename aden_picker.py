@@ -65,7 +65,7 @@ def main():
             # '몬스터를 죽이면 바로 f4하자') — 접적 중이라도 처치 순간 줍는다.
             exp_now = exp_count(img)
             killed = (last_exp is not None and exp_now > last_exp)
-            if killed and near:
+            if killed and near_mob:
                 log("몹 처치 확인 — 즉시 줍기")
             last_exp = exp_now
             if near_mob and not killed:
@@ -91,6 +91,12 @@ def main():
                 waited += 1
             # 사용자 지시(2026-09-16): 칼질 중에는 클릭하지 않되 이동은
             # 허용 — 비전투일 때 가장 가까운 박스 위로 클릭 이동 후 F4.
+            if not near:
+                for _f4 in range(4):
+                    w.key("F4", w.geometry())
+                    time.sleep(1.0)
+                time.sleep(RETRY_GAP)
+                continue
             target = min(near, key=lambda b: (b[0] - cx) ** 2 + (b[1] - cy) ** 2)
             bx, by = target
             dist = int(((bx - cx) ** 2 + (by - cy) ** 2) ** 0.5)

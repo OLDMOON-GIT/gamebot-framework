@@ -103,7 +103,7 @@
       if (w >= 30 * s && hh >= 15 * s && hh <= 35 * s &&
           w / hh <= 15 && w > bestW) bestW = w;
     }
-    if (!bestW) return null;
+    if (!bestW) return 0;
     return Math.min(1.0, bestW / (GAUGE_TRACK_PX * s));
   }
 

@@ -151,7 +151,13 @@ def calibrate_hud(src, need=3, tries=8, delay=2.5):
     for _ in range(tries):
         if STOP.exists():
             return None
-        got = src.probe()
+        # 게이지 ratio를 우선한다. probe()는 OCR 정수만 봐서 ratio가 있어도
+        # 캘리브레이션이 실패하고 사냥이 안 들어갔다.
+        ratio = src.read()
+        if ratio is None:
+            got = src.probe()
+        else:
+            got = (int(round(ratio * 1000)), 1000)
         if got is None:
             streak = 0
             last = None
