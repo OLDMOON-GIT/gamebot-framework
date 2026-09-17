@@ -314,23 +314,11 @@ def main():
                     log(f"귀환 키 실패: {exc}")
                 time.sleep(1.0)
                 continue
-            if NOMOUSE.exists():
-                # 마우스 금지 모드(사용자 지시): 몹 클릭·이탈 클릭 모두
-                # 하지 않는다. 물약(F5 키)은 마우스가 아니므로 계속
-                # 담당한다(2026-09-15 사고: 이 브랜치에서 potion.check를
-                # 건너뛰어 HP가 0.58까지 떨어지는 동안 물약이 끊겼다).
-                result = potion.check(w, hp)
-                if result == EXHAUSTED:
-                    log("물약 재고 소진 — 사냥 중단(사망 방지)")
-                    break
-                # HP 폴링 0.7초(사용자 지시 '감지가 늦으면 죽는다') —
-                # 종전 2.0초 대비 감지 지연 1/3.
-                time.sleep(0.35)
-                continue
             result = potion.check(w, hp)
             if result == EXHAUSTED:
-                log("물약 재고 소진 — 사냥 중단(사망 방지)")
-                break
+                # 3회 무반응을 재고 소진으로 보고 사냥을 끄면, 실제로는
+                # 키가 안 먹인 턴인데 봇이 멈춰 물약이 끊긴다.
+                log("물약 무반응 누적 — 사냥 유지(오판으로 중단하지 않음)")
             potion_delayed = result == USED  # 물약 후에도 몹 공격은 이어간다
             sk = next_skill(settings.get("attack_skills") or [], hp, None, now, skill_last, skill_count)
             if sk and sk.get("key"):
@@ -360,11 +348,18 @@ def main():
                 time.sleep(1.5 if potion_delayed else 2.5)
                 continue
             mx, my, area = mobs[0]
+            # CDP 터치는 실마우스 커서를 움직이지 않는다. nomouse(X11 시절)
+            # 때문에 몹 클릭을 건너뛰면 물약만 먹고 사냥이 멈춘다.
             yield_click(w, mx, my)
             last_combat = time.monotonic()
             kills += 1
             main.kills = kills
             log(f"근접 몹 공격 #{kills}: ({mx},{my}) 면적={area} HP={hp}")
+            if settings.get("pickup_enabled", True):
+                try:
+                    w.key("F4", w.geometry())
+                except Exception:
+                    pass
             time.sleep(4.0)  # 자동전투 진행 대기
             prev = None      # 전투 후 재기준
         except SystemExit:
