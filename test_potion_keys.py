@@ -88,7 +88,7 @@ class TestPotionKeys(unittest.TestCase):
         p._probe_idx = 99
         self.assertEqual(self._armed(p, 0.79), USED)
         before = self.w.key.call_count
-        # 즉시 다시 저HP가 2프레임 연속 와도 COOLDOWN(3초) 내에는 안 누른다.
+        # 즉시 다시 저HP가 2프레임 연속 와도 COOLDOWN 내에는 안 누른다.
         self.assertEqual(p.check(self.w, 0.75), SKIP)  # 1프레임 기록
         p._low_since -= potion_keys.CONFIRM_GAP + 0.1
         self.assertEqual(p.check(self.w, 0.75), SKIP)  # 쿨다운 차단
