@@ -1,20 +1,12 @@
-from onestep_hunt import pick_aggro_mob
+from onestep_hunt import MELEE_RADIUS, pick_aggro_mob, should_hold_swing
 
 
-def test_가까운_몹을_선빵으로_고른다():
+def test_붙어있는_선빵몹을_먼몹보다_먼저_고른다():
     char = (100, 100)
-    far = (250, 100, 5000)
-    near = (130, 100, 200)
-    got = pick_aggro_mob([far, near], char)
-    assert got == near
-
-
-def test_선빵_타겟이_있으면_홀드한다():
-    from onestep_hunt import should_hold_swing
-    last = (200, 200)
-    mobs = [(205, 198, 100), (400, 400, 100)]
-    assert should_hold_swing(None, 0, 999, last, mobs) is True
-    assert should_hold_swing(None, 0, 999, last, [(500, 500, 1)]) is False
+    far = (100 + MELEE_RADIUS + 40, 100, 9000)
+    melee = (100 + 40, 100, 100)
+    got = pick_aggro_mob([far, melee], char)
+    assert got == melee
 
 
 def test_이미_찍은_타겟을_유지한다():
@@ -23,3 +15,20 @@ def test_이미_찍은_타겟을_유지한다():
     b = (120, 100, 100)
     got = pick_aggro_mob([a, b], char, last_xy=(142, 98))
     assert got == a
+
+
+def test_노란막대_붙은_몹이_선빵():
+    char = (100, 100)
+    a = (220, 100, 100)
+    b = (240, 100, 100)
+    bars = [(221, 70, 40)]
+    got = pick_aggro_mob([a, b], char, bars=bars)
+    assert got == a
+
+
+def test_선빵_타겟이_있으면_홀드한다():
+    last = (200, 200)
+    mobs = [(205, 198, 100), (400, 400, 100)]
+    assert should_hold_swing(None, 0, 999, last, mobs) is True
+    assert should_hold_swing(None, None, 999, last, [(500, 500, 1)]) is False
+

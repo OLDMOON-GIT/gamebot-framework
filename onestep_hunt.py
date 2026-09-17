@@ -28,6 +28,7 @@ RUNTIME = Path("/tmp/linc-bot-linux")
 STOP = RUNTIME / "stop"
 NOMOUSE = RUNTIME / "nomouse"   # 마우스 클릭 전면 금지(사용자 지시 2026-09-15)
 NEAR_RADIUS = 260            # 한 칸~두 칸: 캐릭터 중심 이 반경 몹만
+MELEE_RADIUS = 120           # 붙어 치는 선빵 거리
 HOLD_AFTER_CLICK = 6.0       # 클릭 후 자동공격이 돌 시간. 재클릭하면 칼질이 끊긴다.
 EXT_HP_URL = "http://127.0.0.1:17311/hp"
 
@@ -63,6 +64,8 @@ def should_hold_swing(frame, last_click_mono, now, last_xy=None, mobs=None):
             return True
     if last_click_mono is not None and (now - last_click_mono) < HOLD_AFTER_CLICK:
         return True
+    if frame is None:
+        return False
     return bool(mob_hp_bars(frame))
 
 
@@ -93,8 +96,8 @@ def near_named_mobs(cur, char):
     return sorted(mobs, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
 
 
-def pick_aggro_mob(mobs, char, last_xy=None):
-    """주변 몹 중 선빵(붙어 있는)부터. 면적 큰 먼 몹을 찍으면 칼질이 끊긴다."""
+def pick_aggro_mob(mobs, char, last_xy=None, bars=None):
+    """선빵 몹 우선: 1) 이미 찍은 타겟 2) 붙어 치는 거리 3) 노란 HP막대 4) 가장 가까움."""
     if not mobs:
         return None
     cx, cy = char[:2]
@@ -102,7 +105,16 @@ def pick_aggro_mob(mobs, char, last_xy=None):
         lx, ly = last_xy
         sticky = [m for m in mobs if np.hypot(m[0] - lx, m[1] - ly) <= 90]
         if sticky:
-            return min(sticky, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
+            return min(sticky, key=lambda m: np.hypot(m[0] - lx, m[1] - ly))
+    melee = [m for m in mobs if np.hypot(m[0] - cx, m[1] - cy) <= MELEE_RADIUS]
+    if melee:
+        return min(melee, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
+    if bars:
+        def bar_dist(m):
+            return min(np.hypot(m[0] - bx, m[1] - by) for bx, by, _w in bars)
+        tagged = [m for m in mobs if bar_dist(m) <= 90]
+        if tagged:
+            return min(tagged, key=bar_dist)
     return min(mobs, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
 
 
@@ -391,20 +403,23 @@ def main():
                 prev = cur
                 continue
             char = hunt_character(cur)
-            mobs = near_mobs(prev, cur, char) or near_named_mobs(cur, char)
+            named = near_named_mobs(cur, char)
+            moved = near_mobs(prev, cur, char)
+            mobs = named or moved
             prev = cur
             now_swing = time.monotonic()
             if should_hold_swing(cur, last_click_mono, now_swing, last_click_xy, mobs):
                 last_combat = now_swing
                 if now_swing - last_hold_log >= 5:
-                    log("전투 유지 — 재클릭 생략(칼질 유지)")
+                    log("전투 유지 — 선빵 타겟 칼질")
                     last_hold_log = now_swing
                 time.sleep(0.35)
                 continue
             if not mobs:
                 time.sleep(0.35)
                 continue
-            chosen = pick_aggro_mob(mobs, char, last_click_xy)
+            bars = mob_hp_bars(cur)
+            chosen = pick_aggro_mob(mobs, char, last_click_xy, bars)
             if chosen is None:
                 time.sleep(0.35)
                 continue
@@ -417,7 +432,8 @@ def main():
             last_click_xy = (mx, my)
             kills += 1
             main.kills = kills
-            log(f"근접 몹 공격 #{kills}: ({mx},{my}) 면적={area} HP={hp}")
+            dist = int(np.hypot(mx - char[0], my - char[1]))
+            log(f"선빵 타격 #{kills}: ({mx},{my}) d={dist} HP={hp:.0%}")
             # 긴 sleep + prev=None 이면 칼질이 끊긴다. 짧게만 쉬고 프레임을 유지.
             time.sleep(0.55)
         except SystemExit:
