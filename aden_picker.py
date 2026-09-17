@@ -85,10 +85,9 @@ def main():
             if not near and not good_labels:
                 time.sleep(2.0)
                 continue
-            waited = 0
-            while user_active() and waited < 6 and not STOP.exists():
-                time.sleep(1.0)
-                waited += 1
+            if user_active(observe=0.12, poll=0.04):
+                time.sleep(0.3)
+                continue
             # 사용자 지시(2026-09-16): 칼질 중에는 클릭하지 않되 이동은
             # 허용 — 비전투일 때 가장 가까운 박스 위로 클릭 이동 후 F4.
             if not near:
@@ -101,10 +100,9 @@ def main():
             bx, by = target
             dist = int(((bx - cx) ** 2 + (by - cy) ** 2) ** 0.5)
             if dist > 70:   # 발밑이 아니면 박스 위로 이동
-                waited = 0
-                while user_active() and waited < 6 and not STOP.exists():
-                    time.sleep(1.0)
-                    waited += 1
+                if user_active(observe=0.12, poll=0.04):
+                    time.sleep(0.3)
+                    continue
                 w.click(bx, by, w.geometry())
                 time.sleep(2.2)
                 img2 = w.capture()
