@@ -339,24 +339,21 @@ def main():
                     log(f"기능 아이템 키 실패: {exc}")
             if prev is None or prev.shape != cur.shape:
                 prev = cur
-                time.sleep(2.5)
                 continue
             char = find_character(cur)
             mobs = near_mobs(prev, cur, char) or near_named_mobs(cur, char)
             prev = cur
             if not mobs:
-                time.sleep(1.5 if potion_delayed else 2.5)
+                time.sleep(0.35)
                 continue
             mx, my, area = mobs[0]
-            # CDP 터치는 실마우스 커서를 움직이지 않는다. nomouse(X11 시절)
-            # 때문에 몹 클릭을 건너뛰면 물약만 먹고 사냥이 멈춘다.
             yield_click(w, mx, my)
             last_combat = time.monotonic()
             kills += 1
             main.kills = kills
             log(f"근접 몹 공격 #{kills}: ({mx},{my}) 면적={area} HP={hp}")
-            time.sleep(4.0)  # 자동전투 진행 대기
-            prev = None      # 전투 후 재기준
+            # 4초 sleep + prev=None 이면 칼질이 끊긴다. 짧게만 쉬고 프레임을 유지.
+            time.sleep(0.55)
         except SystemExit:
             break
         except UserBusy as exc:

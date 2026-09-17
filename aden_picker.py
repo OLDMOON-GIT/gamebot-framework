@@ -79,10 +79,18 @@ def main():
                 time.sleep(0.5)
                 continue
             char = find_character(img)
+            cx, cy = (char[:2] if char else (0, 0))
+            near_mob = False
+            if char:
+                near_mob = any(
+                    (x - cx) ** 2 + (y - cy) ** 2 <= NEAR_MOB_RADIUS ** 2
+                    for x, y, _a, _r in red_name_candidates(img)
+                )
             near_high = two_tile_highs(char, labels)
             if near_high:
                 _d2, x, y, name = near_high[0]
-                if _d2 > 90 ** 2:
+                # 칼질 중에 바닥을 클릭하면 자동공격이 끊긴다. 접적 중엔 F4만.
+                if _d2 > 90 ** 2 and not near_mob:
                     w.click(x, y, w.geometry())
                     time.sleep(0.7)
                     log(f"두칸 이동 줍기 {name}")
