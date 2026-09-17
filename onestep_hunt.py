@@ -55,13 +55,12 @@ def in_play_rect(x, y):
     return left <= x < left + width and top <= y < top + height
 
 
-def should_hold_swing(frame, last_click_mono, now):
-    """타겟이 살아 있거나 방금 클릭했으면 재클릭하지 않는다.
-
-    onestep_hunt는 매 틱 프레임차분 블롭을 클릭했다. 캐릭터 칼질 이펙트·
-    바닥·HUD를 누르면 리니지 자동공격이 끊긴다(BTS-1033742). linux_bot은
-    노란 몹 HP 막대(mob_hp_bars)가 있으면 개입하지 않는다.
-    """
+def should_hold_swing(frame, last_click_mono, now, last_xy=None, mobs=None):
+    """타겟이 살아 있으면 재클릭하지 않는다. 다른 몹을 찍으면 칼질이 끊긴다."""
+    if last_xy is not None and mobs:
+        lx, ly = last_xy
+        if any(np.hypot(m[0] - lx, m[1] - ly) <= 110 for m in mobs):
+            return True
     if last_click_mono is not None and (now - last_click_mono) < HOLD_AFTER_CLICK:
         return True
     return bool(mob_hp_bars(frame))
@@ -395,7 +394,7 @@ def main():
             mobs = near_mobs(prev, cur, char) or near_named_mobs(cur, char)
             prev = cur
             now_swing = time.monotonic()
-            if should_hold_swing(cur, last_click_mono, now_swing):
+            if should_hold_swing(cur, last_click_mono, now_swing, last_click_xy, mobs):
                 last_combat = now_swing
                 if now_swing - last_hold_log >= 5:
                     log("전투 유지 — 재클릭 생략(칼질 유지)")

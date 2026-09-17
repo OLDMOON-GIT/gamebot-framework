@@ -9,6 +9,14 @@ def test_가까운_몹을_선빵으로_고른다():
     assert got == near
 
 
+def test_선빵_타겟이_있으면_홀드한다():
+    from onestep_hunt import should_hold_swing
+    last = (200, 200)
+    mobs = [(205, 198, 100), (400, 400, 100)]
+    assert should_hold_swing(None, 0, 999, last, mobs) is True
+    assert should_hold_swing(None, 0, 999, last, [(500, 500, 1)]) is False
+
+
 def test_이미_찍은_타겟을_유지한다():
     char = (100, 100)
     a = (140, 100, 100)
