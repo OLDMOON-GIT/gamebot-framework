@@ -38,20 +38,20 @@ class F4PickupTests(unittest.TestCase):
 
 
     def test_저급_잡템은_무시한다(self):
-        # 사용자 지시: 고급/저급 판별 — 저급 템만 있으면 F4를 누르지 않는다.
+        # F4-first: 키는 누르되 바닥 클릭은 안 한다. 저급 판별은 유지.
         from item_tiers import tier_of as real_tier
         lab = MagicMock()
         lab.name = "늑대가죽"
         w = self._run(label_seq=[[lab], []], gain_seq=[0, 0], tier="low")
-        w.key.assert_not_called()
+        w.click.assert_not_called()
         self.assertEqual(real_tier("늑대가죽"), "low")
 
-    def test_근처_몹있으면_전투중_줍기_보류(self):
-        # 사용자 지시: 몬스터 사냥 중이 아니라 사냥 없을 때 주워라.
-        # 캐릭터 (500,700) 반경 260px 안에 몹 (600,700) → 접적: F4 안 누름.
+    def test_근처_몹있으면_전투중_바닥클릭_안함(self):
+        # F4는 자동공격을 안 끊는다. 접적 중 바닥 클릭만 금지(BTS-1033742).
         w = MagicMock()
         w.active.return_value = True
         w.capture.return_value = MagicMock()
+        w.geometry.return_value = (0, 0, 10, 10)
         stop = MagicMock()
         stop.exists.side_effect = [False] * 3 + [True]
         with patch.object(ap, "CdpWindow", return_value=w), \
@@ -64,7 +64,8 @@ class F4PickupTests(unittest.TestCase):
                 patch.object(ap, "STOP", stop), \
                 patch.object(ap, "log"):
             ap.main()
-        w.key.assert_not_called()
+        w.click.assert_not_called()
+        w.key.assert_called()
 
     def test_드랍있고_획득증가면_F4누르고_성공(self):
         w = self._run(
@@ -84,9 +85,35 @@ class F4PickupTests(unittest.TestCase):
         )
         self.assertGreaterEqual(w.key.call_count, 1)
 
-    def test_드랍없으면_F4_안누름(self):
+    def test_드랍없어도_바닥클릭_안함(self):
         w = self._run(label_seq=[[], []], gain_seq=[0, 0])
-        w.key.assert_not_called()
+        w.click.assert_not_called()
+
+    def test_고급드랍이_멀어도_바닥클릭_안함(self):
+        """칼질 중에 바닥을 클릭하면 자동공격이 끊긴다(BTS-1033742)."""
+        from types import SimpleNamespace
+        w = MagicMock()
+        w.active.return_value = True
+        w.capture.return_value = MagicMock()
+        w.geometry.return_value = (0, 0, 10, 10)
+        stop = MagicMock()
+        stop.exists.side_effect = [False] * 24 + [True]
+        lab = SimpleNamespace(name="아데나", click=(1000, 700))
+        with patch.object(ap, "CdpWindow", return_value=w), \
+                patch.object(ap, "find_character", return_value=(500, 700)), \
+                patch.object(ap, "red_name_candidates", return_value=[]), \
+                patch.object(ap, "detect_labels", return_value=[lab]), \
+                patch.object(ap, "read_label_names", side_effect=lambda img, labs: labs), \
+                patch.object(ap, "tier_of", return_value="high"), \
+                patch.object(ap, "exp_count", return_value=0), \
+                patch.object(ap, "pickup_count", return_value=0), \
+                patch.object(ap, "user_active", return_value=False), \
+                patch.object(ap.time, "sleep"), \
+                patch.object(ap, "STOP", stop), \
+                patch.object(ap, "log"):
+            ap.main()
+        w.click.assert_not_called()
+        w.key.assert_called()
 
 
 if __name__ == "__main__":

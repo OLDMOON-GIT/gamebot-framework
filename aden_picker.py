@@ -97,9 +97,8 @@ def main():
                     if near_high and not near_mob:
                         _d2, x, y, name = near_high[0]
                         if _d2 > 90 ** 2:
-                            w.click(x, y, w.geometry())
-                            time.sleep(0.5)
-                            log(f"두칸 이동 줍기 {name}")
+                            # 바닥 클릭은 자동공격을 끊는다(BTS-1033742). F4만.
+                            log(f"두칸 드랍 {name} — F4만(바닥클릭 금지)")
             time.sleep(0.32)
         except SystemExit:
             break

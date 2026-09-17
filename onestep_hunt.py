@@ -14,7 +14,9 @@ import cv2
 import numpy as np
 
 from cdp_window import CdpWindow, EXT_PORT
-from linux_vision import find_character, hp_read, red_name_candidates
+from linux_vision import (
+    PLAY_RECT, find_character, hp_read, mob_hp_bars, red_name_candidates,
+)
 from potion_keys import EXHAUSTED, USED, PotionKeys
 from user_gate import user_active
 from hunt_priority import RETURN, STOP, decide
@@ -26,6 +28,7 @@ RUNTIME = Path("/tmp/linc-bot-linux")
 STOP = RUNTIME / "stop"
 NOMOUSE = RUNTIME / "nomouse"   # 마우스 클릭 전면 금지(사용자 지시 2026-09-15)
 NEAR_RADIUS = 260            # 한 칸~두 칸: 캐릭터 중심 이 반경 몹만
+HOLD_AFTER_CLICK = 6.0       # 클릭 후 자동공격이 돌 시간. 재클릭하면 칼질이 끊긴다.
 EXT_HP_URL = "http://127.0.0.1:17311/hp"
 
 
@@ -51,6 +54,37 @@ def yield_click(w, x, y, max_wait=120):
     w.click(x, y, w.geometry())
 
 
+def in_play_rect(x, y):
+    """사냥 클릭 허용 영역. HUD/사이드바 클릭은 자동공격을 끊는다."""
+    left, top, width, height = PLAY_RECT
+    return left <= x < left + width and top <= y < top + height
+
+
+def should_hold_swing(frame, last_click_mono, now):
+    """타겟이 살아 있거나 방금 클릭했으면 재클릭하지 않는다.
+
+    onestep_hunt는 매 틱 프레임차분 블롭을 클릭했다. 캐릭터 칼질 이펙트·
+    바닥·HUD를 누르면 리니지 자동공격이 끊긴다(BTS-1033742). linux_bot은
+    노란 몹 HP 막대(mob_hp_bars)가 있으면 개입하지 않는다.
+    """
+    if last_click_mono is not None and (now - last_click_mono) < HOLD_AFTER_CLICK:
+        return True
+    return bool(mob_hp_bars(frame))
+
+
+def hunt_character(img):
+    """사냥용 캐릭터 좌표. HUD/사이드바 HP바 오탐은 버린다.
+
+    실측 2026-09-17: find_character가 (1881,388) 우측 HUD를 캐릭터로 보고
+    근처 이펙트를 몹으로 클릭 → 자동공격 끊김.
+    """
+    char = find_character(img)
+    if char is not None and in_play_rect(char[0], char[1]):
+        return char
+    left, top, width, height = PLAY_RECT
+    return (left + width // 2, top + height // 2)
+
+
 def near_named_mobs(cur, char):
     """정지 몹도 잡는다: 캐릭터 근접 빨간 이름표(몹 후보) 목록."""
     if char is None:
@@ -59,18 +93,24 @@ def near_named_mobs(cur, char):
     mobs = []
     for x, y, area, _rect in red_name_candidates(cur):
         d = np.hypot(x - cx, y - cy)
-        if d <= NEAR_RADIUS:
+        if d <= NEAR_RADIUS and in_play_rect(x, y + 30):
             # 이름표 아래 몸체를 노린다(실측: 이름 아래 약 30px)
             mobs.append((int(x), int(y + 30), area))
     return sorted(mobs, key=lambda m: -m[2])
 
 
 def near_mobs(prev, cur, char):
-    """캐릭터 주변 근접 이동체(몹) 목록 — 프레임 차분 + 반경 필터."""
+    """캐릭터 주변 근접 이동체(몹) 목록 — PLAY_RECT 안 프레임 차분."""
     if char is None:
         return []
     cx, cy = char[:2]
-    diff = cv2.absdiff(prev, cur).max(axis=2)
+    left, top, width, height = PLAY_RECT
+    h, w = cur.shape[:2]
+    if top + height > h or left + width > w:
+        return []
+    a = cur[top:top + height, left:left + width]
+    b = prev[top:top + height, left:left + width]
+    diff = cv2.absdiff(a, b).max(axis=2)
     _, th = cv2.threshold(diff, 35, 255, cv2.THRESH_BINARY)
     th = cv2.dilate(th, np.ones((5, 5), np.uint8))
     contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -80,7 +120,7 @@ def near_mobs(prev, cur, char):
         if not (150 <= area <= 6000):
             continue
         x, y, bw, bh = cv2.boundingRect(c)
-        mx, my = x + bw // 2, y + bh // 2
+        mx, my = left + x + bw // 2, top + y + bh // 2
         # 캐릭터 본인 몸통(가까움)은 제외: 살짝 아래쪽 중심에서 벗어난 것만
         if np.hypot(mx - cx, my - cy) <= NEAR_RADIUS and \
                 np.hypot(mx - cx, my - cy) > 60:
@@ -271,6 +311,8 @@ def main():
     prev = None
     potion = PotionKeys(read=read_hp_source)
     last_combat = time.monotonic()
+    last_click_mono = None
+    last_hold_log = 0.0
     skill_last, skill_count = {}, {}
     func_last = {}
     while not STOP.exists():
@@ -340,19 +382,30 @@ def main():
             if prev is None or prev.shape != cur.shape:
                 prev = cur
                 continue
-            char = find_character(cur)
+            char = hunt_character(cur)
             mobs = near_mobs(prev, cur, char) or near_named_mobs(cur, char)
             prev = cur
+            now_swing = time.monotonic()
+            if should_hold_swing(cur, last_click_mono, now_swing):
+                last_combat = now_swing
+                if now_swing - last_hold_log >= 5:
+                    log("전투 유지 — 재클릭 생략(칼질 유지)")
+                    last_hold_log = now_swing
+                time.sleep(0.35)
+                continue
             if not mobs:
                 time.sleep(0.35)
                 continue
             mx, my, area = mobs[0]
+            if not in_play_rect(mx, my):
+                continue
             yield_click(w, mx, my)
             last_combat = time.monotonic()
+            last_click_mono = last_combat
             kills += 1
             main.kills = kills
             log(f"근접 몹 공격 #{kills}: ({mx},{my}) 면적={area} HP={hp}")
-            # 4초 sleep + prev=None 이면 칼질이 끊긴다. 짧게만 쉬고 프레임을 유지.
+            # 긴 sleep + prev=None 이면 칼질이 끊긴다. 짧게만 쉬고 프레임을 유지.
             time.sleep(0.55)
         except SystemExit:
             break

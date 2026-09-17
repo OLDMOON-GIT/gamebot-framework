@@ -56,6 +56,8 @@ class HpUnreadableTests(unittest.TestCase):
                 patch.object(oh, "hp_read", side_effect=hp_read), \
                 patch.object(oh, "find_character", return_value=(5, 5)), \
                 patch.object(oh, "red_name_candidates", return_value=[]), \
+                patch.object(oh, "mob_hp_bars", return_value=[]), \
+                patch.object(oh, "in_play_rect", return_value=True), \
                 patch.object(oh, "near_mobs", return_value=[(3, 3, 9)]), \
                 patch.object(oh, "user_active", return_value=False), \
                 patch.object(oh.time, "sleep"), \
@@ -79,6 +81,74 @@ class HpUnreadableTests(unittest.TestCase):
         """판독이 돌아오면 카운터 리셋 후 정상 공격."""
         w, _ = self._run([None, 0.9, 0.9, 0.9])
         self.assertTrue(w.click.called)
+
+
+class HoldSwingTests(unittest.TestCase):
+    """BTS-1033742: 전투 중 재클릭하면 칼질이 끊긴다."""
+
+    def test_노란막대면_재클릭_홀드(self):
+        frame = object()
+        with patch.object(oh, "mob_hp_bars", return_value=[(100, 200, 40)]):
+            self.assertTrue(oh.should_hold_swing(frame, None, 10.0))
+
+    def test_막대없고_클릭쿨지나면_홀드안함(self):
+        frame = object()
+        with patch.object(oh, "mob_hp_bars", return_value=[]):
+            self.assertFalse(oh.should_hold_swing(frame, 0.0, 7.0))
+
+    def test_hud_캐릭터_오탐은_play_중심(self):
+        left, top, width, height = oh.PLAY_RECT
+        with patch.object(oh, "find_character", return_value=(1881, 388, 0.0)):
+            got = oh.hunt_character(object())
+        self.assertEqual(got[0], left + width // 2)
+        self.assertEqual(got[1], top + height // 2)
+        with patch.object(oh, "find_character", return_value=(800, 500, 0.9)):
+            self.assertEqual(oh.hunt_character(object())[0], 800)
+
+    def test_클릭직후면_막대없어도_홀드(self):
+        frame = object()
+        with patch.object(oh, "mob_hp_bars", return_value=[]):
+            self.assertTrue(oh.should_hold_swing(frame, 9.5, 10.0))
+
+    def test_play_rect_밖은_사냥클릭_금지(self):
+        left, top, width, height = oh.PLAY_RECT
+        self.assertTrue(oh.in_play_rect(left + 10, top + 10))
+        self.assertFalse(oh.in_play_rect(1916, 507))
+        self.assertFalse(oh.in_play_rect(left - 1, top + 10))
+        self.assertFalse(oh.in_play_rect(left + width, top + 10))
+
+    def test_노란막대면_메인루프가_클릭하지_않는다(self):
+        w, _ = HpUnreadableTests()._run([0.9, 0.9, 0.9])
+        # _run은 막대 없음. 막대가 있으면 클릭 생략.
+        w2 = MagicMock()
+        w2.active.return_value = True
+        w2.capture.return_value = MagicMock(shape=(10, 10, 3))
+        potion = MagicMock(); potion.check.return_value = None
+        hp_iter = iter([0.9, 0.9, 0.9])
+
+        def hp_read(_):
+            try:
+                return next(hp_iter)
+            except StopIteration:
+                raise SystemExit
+
+        stop = MagicMock(); stop.exists.return_value = False
+        ext = MagicMock(); ext.read.return_value = None
+        with patch.object(oh, "CdpWindow", return_value=w2), \
+                patch.object(oh, "ExtHpSource", return_value=ext), \
+                patch.object(oh, "calibrate_hud", return_value=(100, 253)), \
+                patch.object(oh, "PotionKeys", return_value=potion), \
+                patch.object(oh, "hp_read", side_effect=hp_read), \
+                patch.object(oh, "find_character", return_value=(800, 500)), \
+                patch.object(oh, "red_name_candidates", return_value=[]), \
+                patch.object(oh, "mob_hp_bars", return_value=[(900, 400, 50)]), \
+                patch.object(oh, "near_mobs", return_value=[(900, 400, 200)]), \
+                patch.object(oh, "user_active", return_value=False), \
+                patch.object(oh.time, "sleep"), \
+                patch.object(oh, "STOP", stop), \
+                patch.object(oh, "log"):
+            oh.main()
+        w2.click.assert_not_called()
 
 
 class ExtHpSourceTests(unittest.TestCase):
@@ -158,6 +228,7 @@ class CalibrateHudTests(unittest.TestCase):
 
     def _run(self, seq):
         src = MagicMock()
+        src.read.return_value = None  # probe 경로(숫자 일관)를 검증
         src.probe.side_effect = seq
         stop = MagicMock(); stop.exists.return_value = False
         with patch.object(oh.time, "sleep"), \
