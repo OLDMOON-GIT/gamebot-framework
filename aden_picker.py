@@ -75,42 +75,31 @@ def main():
             names = [l.name for l in labels if l.name]
             lows = [n for n in names if tier_of(n) == "low"]
             highs = [n for n in names if tier_of(n) == "high"]
-            if names and lows and len(lows) == len(names) and not highs:
-                time.sleep(0.5)
+            junk_only = bool(names) and (not highs) and lows and len(lows) == len(names)
+            if junk_only:
+                time.sleep(0.45)
                 continue
             char = find_character(img)
-            cx, cy = (char[:2] if char else (0, 0))
             near_mob = False
             if char:
+                cx, cy = char[:2]
                 near_mob = any(
                     (x - cx) ** 2 + (y - cy) ** 2 <= NEAR_MOB_RADIUS ** 2
                     for x, y, _a, _r in red_name_candidates(img)
                 )
             near_high = two_tile_highs(char, labels)
-            if near_high:
+            if near_high and not near_mob:
                 _d2, x, y, name = near_high[0]
-                # 칼질 중에 바닥을 클릭하면 자동공격이 끊긴다. 접적 중엔 F4만.
-                if _d2 > 90 ** 2 and not near_mob:
+                if _d2 > 90 ** 2:
                     w.click(x, y, w.geometry())
-                    time.sleep(0.7)
+                    time.sleep(0.55)
                     log(f"두칸 이동 줍기 {name}")
-                w.key("F4", w.geometry())
-                n_f4 += 1
-                picked += 1
-                time.sleep(0.35)
-                continue
-            exp_now = exp_count(img)
-            killed = last_exp is not None and exp_now > last_exp
-            last_exp = exp_now
-            want = bool(highs) or killed or (not names)
-            if not want:
-                time.sleep(0.4)
-                continue
+            # 잡템만 있는 경우가 아니면 F4. OCR 잡음 때문에 아덴을 스킵하지 않는다.
             w.key("F4", w.geometry())
             n_f4 += 1
             picked += 1
             if n_f4 % 20 == 0:
-                log(f"F4 아덴 줍기 {n_f4}회 (잡템 스킵)")
+                log(f"F4 아덴 줍기 {n_f4}회")
             time.sleep(0.35)
         except SystemExit:
             break
