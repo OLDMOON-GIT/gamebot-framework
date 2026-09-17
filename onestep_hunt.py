@@ -25,6 +25,7 @@ from hunt_priority import RETURN, STOP, decide
 from bot_settings import load as load_settings
 from attack_skills import next_skill
 from func_items import next_item
+from hunt_zone import HuntZone, is_forbidden_mob
 
 RUNTIME = Path("/tmp/linc-bot-linux")
 STOP = RUNTIME / "stop"
@@ -47,6 +48,8 @@ _name_cache = {}
 def kill_rank(name):
     if not name:
         return 80
+    if is_forbidden_mob(name):
+        return 90
     n = re.sub(r"\s+", "", str(name)).lower()
     for key, rank in DESERT4_RANK:
         if key in n:
@@ -154,19 +157,28 @@ def near_named_mobs(cur, char, radius=None):
 
 
 def pick_aggro_mob(mobs, char, last_xy=None, bars=None):
-    """사던4층: 켈베로스 > 킹버그 > 버그. 같은 종이면 가까운 것. 칼질 중 타겟은 유지."""
+    """사던4층: 켈베로스 > 킹버그 > 버그. 같은 종이면 가까운 것. 칼질 중 타겟은 유지.
+    버그베어(버땅)는 사던 버그가 아니라서 후보에서 뺀다."""
     if not mobs:
+        return None
+    usable = []
+    for m in mobs:
+        nm = m[3] if len(m) > 3 else ""
+        if is_forbidden_mob(nm):
+            continue
+        usable.append(m)
+    if not usable:
         return None
     cx, cy = char[:2]
     if last_xy is not None:
         lx, ly = last_xy
-        sticky = [m for m in mobs if np.hypot(m[0] - lx, m[1] - ly) <= 90]
+        sticky = [m for m in usable if np.hypot(m[0] - lx, m[1] - ly) <= 90]
         if sticky:
             return min(sticky, key=lambda m: np.hypot(m[0] - lx, m[1] - ly))
     def sort_key(m):
         nm = m[3] if len(m) > 3 else ""
         return (kill_rank(nm), np.hypot(m[0] - cx, m[1] - cy))
-    return min(mobs, key=sort_key)
+    return min(usable, key=sort_key)
 
 
 def near_mobs(prev, cur, char, radius=None):
@@ -375,16 +387,18 @@ def main():
         post_bot_status(guarded, kills=main.kills)
         return guarded
 
-    log("한 칸 거리 사냥 시작(이동 없음, 근접 몹만)")
+    log("한 칸 거리 사냥 시작(사던4층만, 버땅/축복의땅 스킵)")
     kills = 0
     main.kills = 0
     hp_unread = 0
     prev = None
     potion = PotionKeys(read=read_hp_source)
+    hunt_zone = HuntZone(default="allow")
     last_combat = time.monotonic()
     last_click_mono = None
     last_click_xy = None
     last_hold_log = 0.0
+    last_skip_log = 0.0
     skill_last, skill_count = {}, {}
     func_last = {}
     while not STOP.exists():
@@ -453,6 +467,15 @@ def main():
                     log(f"기능 아이템 키 실패: {exc}")
             if prev is None or prev.shape != cur.shape:
                 prev = cur
+                continue
+            zone, zname = hunt_zone.decide(cur)
+            if zone == "skip":
+                now_skip = time.monotonic()
+                if now_skip - last_skip_log >= 8:
+                    log(f"맵 스킵({zname or '?'}) — 버땅/축복의땅 사냥 안 함")
+                    last_skip_log = now_skip
+                prev = cur
+                time.sleep(0.5)
                 continue
             char = hunt_character(cur)
             rad = hunt_radius(settings)

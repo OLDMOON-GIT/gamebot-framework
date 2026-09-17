@@ -6,6 +6,7 @@ from onestep_hunt import (
 def test_사던4_킬순서():
     assert kill_rank("켈베로스") < kill_rank("킹버그") < kill_rank("버그")
     assert kill_rank("웰베로스") == kill_rank("켈베로스")
+    assert kill_rank("버그베어") > kill_rank("버그")
     char = (0, 0)
     bug = (40, 0, 10, "버그")
     king = (80, 0, 10, "킹버그")
@@ -14,6 +15,9 @@ def test_사던4_킬순서():
     assert got[3] == "켈베로스"
     got = pick_aggro_mob([bug, king], char)
     assert got[3] == "킹버그"
+    bear = (5, 0, 10, "버그베어")
+    got = pick_aggro_mob([bear, bug], char)
+    assert got[3] == "버그"
 
 
 def test_탐색10칸은_화면범위():
