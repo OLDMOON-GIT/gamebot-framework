@@ -1008,41 +1008,55 @@
       if (!vids.length) return null;
       vids.sort((a,b) => b.videoWidth*b.videoHeight - a.videoWidth*a.videoHeight);
       const v = vids[0];
+      const W = v.videoWidth, Hstrip = Math.max(1, Math.round(v.videoHeight * 100 / 960));
       const y = Math.round(v.videoHeight * 720 / 960);
-      const hh = Math.max(1, Math.round(v.videoHeight * 100 / 960));
       const c = document.createElement('canvas');
-      c.width = v.videoWidth; c.height = hh;
+      c.width = W; c.height = Hstrip;
       const ctx = c.getContext('2d', { willReadFrequently: true });
-      ctx.drawImage(v, 0, y, v.videoWidth, hh, 0, 0, v.videoWidth, hh);
-      const y0 = Math.round(28 * v.videoWidth / 1280), y1 = Math.min(hh, Math.round(80 * v.videoWidth / 1280));
-      // HP 게이지는 드래곤 왼쪽. 전폭을 쓰면 문양이 빨강이라 100%로 오판한다.
-      const rows = y1 - y0, cols = Math.floor(v.videoWidth * 0.48);
-      if (rows < 8 || cols < 40) return null;
-      const data = ctx.getImageData(0, y0, cols, rows).data;
-      const colHits = new Uint16Array(cols);
+      ctx.drawImage(v, 0, y, W, Hstrip, 0, 0, W, Hstrip);
+      const s = W / 1280;
+      const y0 = Math.max(0, Math.round(28 * s)), y1 = Math.min(Hstrip, Math.round(80 * s));
+      const rows = y1 - y0, colsN = Math.floor(W * 0.48);
+      if (rows < 8) return null;
+      const data = ctx.getImageData(0, y0, colsN, rows).data;
+      const mask = new Uint8Array(colsN * rows);
       for (let yy = 0; yy < rows; yy++) {
-        for (let x = 0; x < cols; x++) {
-          const i = (yy * cols + x) * 4;
+        for (let x = 0; x < colsN; x++) {
+          const i = (yy * colsN + x) * 4;
           const r = data[i], g = data[i+1], b = data[i+2];
-          if (r > 80 && r >= g && r > b + 6) colHits[x]++;
+          const mx = Math.max(r,g,b), mn = Math.min(r,g,b);
+          if (mx < 90 || mx === 0 || (mx-mn)/mx < 0.40) continue;
+          const d = mx - mn;
+          let h = 0;
+          if (mx === r) h = 60 * ((((g - b) / d) % 6 + 6) % 6);
+          else if (mx === g) h = 60 * ((b - r) / d + 2);
+          else h = 60 * ((r - g) / d + 4);
+          if (h <= 28 || h >= 155) mask[yy * colsN + x] = 1;
         }
       }
-      const need = Math.max(3, Math.floor(rows * 0.18));
-      let left = -1, right = -1, run = 0, bestL = -1, bestR = -1;
-      for (let x = 0; x < cols; x++) {
-        if (colHits[x] >= need) {
-          if (left < 0) left = x;
-          right = x;
-          run++;
-        } else {
-          if (left >= 0 && right - left > (bestR - bestL)) { bestL = left; bestR = right; }
-          left = -1; right = -1;
+      const seen = new Uint8Array(colsN * rows);
+      const q = new Int32Array(colsN * rows);
+      let bestW = 0;
+      for (let start = 0; start < colsN * rows; start++) {
+        if (!mask[start] || seen[start]) continue;
+        let head = 0, tail = 0;
+        q[tail++] = start; seen[start] = 1;
+        let minX = colsN, maxX = -1, minY = rows, maxY = -1;
+        while (head < tail) {
+          const p = q[head++];
+          const py = (p / colsN) | 0, px = p - py * colsN;
+          if (px < minX) minX = px; if (px > maxX) maxX = px;
+          if (py < minY) minY = py; if (py > maxY) maxY = py;
+          if (px > 0 && mask[p-1] && !seen[p-1]) { seen[p-1]=1; q[tail++]=p-1; }
+          if (px < colsN-1 && mask[p+1] && !seen[p+1]) { seen[p+1]=1; q[tail++]=p+1; }
+          if (py > 0 && mask[p-colsN] && !seen[p-colsN]) { seen[p-colsN]=1; q[tail++]=p-colsN; }
+          if (py < rows-1 && mask[p+colsN] && !seen[p+colsN]) { seen[p+colsN]=1; q[tail++]=p+colsN; }
         }
+        const ww = maxX - minX + 1, hh = maxY - minY + 1;
+        if (ww >= 30*s && hh >= 10*s && hh <= 40*s && ww/hh <= 20 && ww > bestW) bestW = ww;
       }
-      if (left >= 0 && right - left > (bestR - bestL)) { bestL = left; bestR = right; }
-      if (bestR < bestL) return 0;
-      const track = 272 * (v.videoWidth / 1280);
-      return Math.max(0, Math.min(1, (bestR - bestL + 1) / track));
+      if (!bestW) return lastHp;
+      return Math.min(1, bestW / (272 * s));
     }
     function paintHp(hp) {
       hp = Math.max(0, Math.min(1, hp));
