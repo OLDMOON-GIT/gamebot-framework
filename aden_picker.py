@@ -27,6 +27,23 @@ def log(msg):
     print(time.strftime("%H:%M:%S"), msg, flush=True)
 
 
+def two_tile_highs(char, labels, radius=NEAR_BOX_RADIUS):
+    """캐릭터 두 칸(radius) 안 고급 드랍 클릭 좌표. 몽둥이 등 저급은 제외."""
+    if not char:
+        return []
+    cx, cy = char[:2]
+    out = []
+    for lab in labels or []:
+        if tier_of(getattr(lab, "name", "") or "") != "high":
+            continue
+        x, y = lab.click
+        d2 = (x - cx) ** 2 + (y - cy) ** 2
+        if d2 <= radius ** 2:
+            out.append((d2, x, y, lab.name))
+    out.sort()
+    return out
+
+
 def detect_boxes(img):
     """바닥 드랍 박스(상자 아이콘) 목록: (중심x, 하단y)."""
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -58,14 +75,25 @@ def main():
             names = [l.name for l in labels if l.name]
             lows = [n for n in names if tier_of(n) == "low"]
             highs = [n for n in names if tier_of(n) == "high"]
-            # 몽둥이 같은 저급만 있으면 F4 하지 않는다.
             if names and lows and len(lows) == len(names) and not highs:
                 time.sleep(0.5)
+                continue
+            char = find_character(img)
+            near_high = two_tile_highs(char, labels)
+            if near_high:
+                _d2, x, y, name = near_high[0]
+                if _d2 > 90 ** 2:
+                    w.click(x, y, w.geometry())
+                    time.sleep(0.7)
+                    log(f"두칸 이동 줍기 {name}")
+                w.key("F4", w.geometry())
+                n_f4 += 1
+                picked += 1
+                time.sleep(0.35)
                 continue
             exp_now = exp_count(img)
             killed = last_exp is not None and exp_now > last_exp
             last_exp = exp_now
-            # 아데나가 보이거나, 처치 직후(아덴 드랍), 또는 고급/미지 라벨.
             want = bool(highs) or killed or (not names)
             if not want:
                 time.sleep(0.4)
