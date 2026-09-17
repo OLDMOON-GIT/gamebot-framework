@@ -169,13 +169,17 @@
       hudCtx.drawImage(v, HUD.x, HUD.y, HUD.w, HUD.h, 0, 0, HUD.w, HUD.h);
       try { hpRatio = hpRatioFromStrip(hudCtx, HUD.w, HUD.h); }
       catch (e) { /* 판독 실패는 헤더 생략로 폴백 */ }
-      if (hpRatio !== null && Number.isFinite(hpRatio) && !ratioBusy) {
-        ratioBusy = true;
-        fetch(SERVER + '/ext-ratio', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ratio: hpRatio, ts: Date.now() }),
-        }).catch(() => {}).finally(() => { ratioBusy = false; });
+      if (hpRatio !== null && Number.isFinite(hpRatio)) {
+        window.__lincHpRatio = hpRatio;
+        window.__lincHpTs = Date.now();
+        if (!ratioBusy) {
+          ratioBusy = true;
+          fetch(SERVER + '/ext-ratio', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ratio: hpRatio, ts: Date.now() }),
+          }).catch(() => {}).finally(() => { ratioBusy = false; });
+        }
       }
     } catch (e) {
       if (failStreak === 0) log('HUD 캡처 실패', e.message);
@@ -995,24 +999,73 @@
       } catch (e) { $('lh-msg').textContent = '저장 실패'; }
     };
     let pollBusy = false;
+    let lastHp = null;
+    function localHpFromVideo() {
+      if (typeof window.__lincHpRatio === 'number' && Date.now() - (window.__lincHpTs || 0) < 800) {
+        return window.__lincHpRatio;
+      }
+      const vids = [...document.querySelectorAll('video')].filter(v => v.videoWidth > 200);
+      if (!vids.length) return null;
+      vids.sort((a,b) => b.videoWidth*b.videoHeight - a.videoWidth*a.videoHeight);
+      const v = vids[0];
+      const y = Math.round(v.videoHeight * 720 / 960);
+      const hh = Math.max(1, Math.round(v.videoHeight * 100 / 960));
+      const c = document.createElement('canvas');
+      c.width = v.videoWidth; c.height = hh;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(v, 0, y, v.videoWidth, hh, 0, 0, v.videoWidth, hh);
+      const y0 = Math.round(28 * v.videoWidth / 1280), y1 = Math.min(hh, Math.round(80 * v.videoWidth / 1280));
+      // HP 게이지는 드래곤 왼쪽. 전폭을 쓰면 문양이 빨강이라 100%로 오판한다.
+      const rows = y1 - y0, cols = Math.floor(v.videoWidth * 0.48);
+      if (rows < 8 || cols < 40) return null;
+      const data = ctx.getImageData(0, y0, cols, rows).data;
+      const colHits = new Uint16Array(cols);
+      for (let yy = 0; yy < rows; yy++) {
+        for (let x = 0; x < cols; x++) {
+          const i = (yy * cols + x) * 4;
+          const r = data[i], g = data[i+1], b = data[i+2];
+          if (r > 80 && r >= g && r > b + 6) colHits[x]++;
+        }
+      }
+      const need = Math.max(3, Math.floor(rows * 0.18));
+      let left = -1, right = -1, run = 0, bestL = -1, bestR = -1;
+      for (let x = 0; x < cols; x++) {
+        if (colHits[x] >= need) {
+          if (left < 0) left = x;
+          right = x;
+          run++;
+        } else {
+          if (left >= 0 && right - left > (bestR - bestL)) { bestL = left; bestR = right; }
+          left = -1; right = -1;
+        }
+      }
+      if (left >= 0 && right - left > (bestR - bestL)) { bestL = left; bestR = right; }
+      if (bestR < bestL) return 0;
+      const track = 272 * (v.videoWidth / 1280);
+      return Math.max(0, Math.min(1, (bestR - bestL + 1) / track));
+    }
+    function paintHp(hp) {
+      hp = Math.max(0, Math.min(1, hp));
+      lastHp = hp;
+      $('lh-fill').style.width = Math.round(hp * 100) + '%';
+      $('lh-fill').style.background = hp < 0.45 ? 'linear-gradient(90deg,#e5484d,#ff8a8a)'
+        : hp < 0.8 ? 'linear-gradient(90deg,#f5b431,#ffd76e)' : 'linear-gradient(90deg,#37d67a,#8ff5b3)';
+      $('lh-hp').textContent = 'HP ' + Math.round(hp * 100) + '%';
+    }
     async function poll() {
       if (pollBusy) return;
       pollBusy = true;
       try {
-        const r = await (await fetch(S + '/hp')).json();
-        let hp = null;
-        if (typeof r.ratio === 'number') hp = r.ratio;
-        else if (r.bot && r.bot.ratio != null) hp = r.bot.ratio;
-        else if (r.hp != null && r.hp_max) hp = r.hp / r.hp_max;
-        if (hp != null && Number.isFinite(hp)) {
-          hp = Math.max(0, Math.min(1, hp));
-          $('lh-fill').style.width = Math.round(hp * 100) + '%';
-          $('lh-fill').style.background = hp < 0.45 ? 'linear-gradient(90deg,#e5484d,#ff8a8a)'
-            : hp < 0.8 ? 'linear-gradient(90deg,#f5b431,#ffd76e)' : 'linear-gradient(90deg,#37d67a,#8ff5b3)';
-          $('lh-hp').textContent = 'HP ' + Math.round(hp * 100) + '%';
-        } else {
-          $('lh-hp').textContent = 'HP --%';
-        }
+        const local = localHpFromVideo();
+        if (local != null && Number.isFinite(local)) paintHp(local);
+        let r = {};
+        try { r = await (await fetch(S + '/hp')).json(); } catch (e) { r = {}; }
+        let hp = (local != null && Number.isFinite(local)) ? local : null;
+        if (hp == null && typeof r.ratio === 'number') hp = r.ratio;
+        else if (hp == null && r.bot && r.bot.ratio != null) hp = r.bot.ratio;
+        else if (hp == null && r.hp != null && r.hp_max) hp = r.hp / r.hp_max;
+        if (hp != null && Number.isFinite(hp)) paintHp(hp);
+        else if (lastHp == null) $('lh-hp').textContent = 'HP --%';
         let mp = null;
         if (r.bot && r.bot.mp != null) mp = r.bot.mp;
         else if (typeof r.mp === 'number') mp = r.mp;
