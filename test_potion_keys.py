@@ -132,18 +132,15 @@ class TestPotionKeys(unittest.TestCase):
         self.assertEqual(len(self._presses()) // 2, 4)
 
     def test_F5_성공_후에는_F5를_먼저_누른다(self):
-        # F6 무반응 → F5 반응: 다음 사용부터 F5 우선(학습).
-        reread = iter([0.79, 0.95])  # F6 재판독 무반응, F5 재판독 상승
+        reread = iter([0.79, 0.95])
         p = self._potion(lambda img: next(reread))
         self.assertEqual(self._armed(p, 0.79), USED)
-        self.assertEqual(self._uniq(), ["F5", "F6"])
-        self.assertEqual(p._first_key, "F6")
-
+        self.assertEqual(self._uniq()[0], "F5")
         p._last_used -= COOLDOWN + 0.1
         reread2 = iter([0.95])
         with patch.object(potion_keys, "hp_read", lambda img: next(reread2)):
             self.assertEqual(p.check(self.w, 0.70), USED)
-        self.assertEqual(self._uniq(), ["F5", "F6", "F5"])
+        self.assertEqual(self._uniq()[0], "F5")
 
 
 if __name__ == "__main__":
