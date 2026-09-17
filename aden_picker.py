@@ -46,91 +46,20 @@ def main():
     w = CdpWindow(port=EXT_PORT)
     picked = 0
     last_exp = None
-    log("스마트 줍기 시작(박스 감지 · 사냥 후 반경 내 F4)")
+    n_f4 = 0
+    log("아덴 줍기 시작(F4 연타)")
     while not STOP.exists():
         try:
             if not w.active():
-                time.sleep(5)
-                continue
-            img = w.capture()
-            char = find_character(img)
-            if char is None:
-                time.sleep(1.5)
-                continue
-            cx, cy = char[:2]
-            # 접적(근처 몹) 중엔 줍지 않는다 — 사냥이 끝난 후에만.
-            near_mob = any((x - cx) ** 2 + (y - cy) ** 2 <= NEAR_MOB_RADIUS ** 2
-                           for x, y, _a, _r in red_name_candidates(img))
-            # 몹 처치(경험치 증가) 직후 즉시 F4(사용자 지시 2026-09-16
-            # '몬스터를 죽이면 바로 f4하자') — 접적 중이라도 처치 순간 줍는다.
-            exp_now = exp_count(img)
-            killed = (last_exp is not None and exp_now > last_exp)
-            if killed and near_mob:
-                log("몹 처치 확인 — 즉시 줍기")
-            last_exp = exp_now
-            if near_mob and not killed:
-                time.sleep(0.5)
-                continue
-            # 스마트 줍기: 칼질이 끝나면 드랍 이름표가 보인다(사용자 지시
-            # 2026-09-16) — 이름을 읽어 등급 판별, 저급 잡템은 줍지 않는다.
-            labels = read_label_names(img, detect_labels(img, PICK_RECT))
-            lows = [l for l in labels if tier_of(l.name) == "low"]
-            if lows and len(lows) == len(labels) and not detect_boxes(img):
-                time.sleep(2.5)   # 저급만 있음 — 무시하고 대기
-                continue
-            boxes = detect_boxes(img)
-            near = [b for b in boxes
-                    if (b[0] - cx) ** 2 + (b[1] - cy) ** 2 <= NEAR_BOX_RADIUS ** 2]
-            good_labels = [l for l in labels if tier_of(l.name) != "low"]
-            if not near and not good_labels:
-                time.sleep(2.0)
-                continue
-            if user_active(observe=0.12, poll=0.04):
-                time.sleep(0.3)
-                continue
-            # 사용자 지시(2026-09-16): 칼질 중에는 클릭하지 않되 이동은
-            # 허용 — 비전투일 때 가장 가까운 박스 위로 클릭 이동 후 F4.
-            if not near:
-                for _f4 in range(4):
-                    w.key("F4", w.geometry())
-                    time.sleep(1.0)
-                time.sleep(RETRY_GAP)
-                continue
-            target = min(near, key=lambda b: (b[0] - cx) ** 2 + (b[1] - cy) ** 2)
-            bx, by = target
-            dist = int(((bx - cx) ** 2 + (by - cy) ** 2) ** 0.5)
-            if dist > 70:   # 발밑이 아니면 박스 위로 이동
-                if user_active(observe=0.12, poll=0.04):
-                    time.sleep(0.3)
-                    continue
-                w.click(bx, by, w.geometry())
-                time.sleep(2.2)
-                img2 = w.capture()
-                c2 = find_character(img2)
-                if c2 and ((bx - c2[0]) ** 2 + (by - c2[1]) ** 2) > 150 ** 2:
-                    log("이동 미완 — 다시 시도")
-                    time.sleep(1.5)
-                    continue
-            # 획득 판정: 박스 소실(채팅 '획득' OCR은 불안정 — 실측 줍기
-            # 되는데 0 판정). F4 연타(사용자 지시: 여러 번) 후 반경 내
-            # 박스 감소 = 줍기 성공.
-            before_n = len(near)
-            for _f4 in range(4):
-                w.key("F4", w.geometry())
                 time.sleep(1.0)
-            img3 = w.capture()
-            c3 = find_character(img3)
-            after_n = 0
-            if c3:
-                after_n = sum(1 for b in detect_boxes(img3)
-                              if (b[0] - c3[0]) ** 2 + (b[1] - c3[1]) ** 2 <= 450 ** 2)
-            gain = max(0, before_n - after_n)
-            if gain:
-                picked += gain
-                log(f"F4 줍기 {gain}개 (누적 {picked})")
-            else:
-                log(f"F4 무반응(반경 내 {before_n}개) — {RETRY_GAP}s 후 재시도")
-                time.sleep(RETRY_GAP)
+                continue
+            # 아덴은 F4 범위 줍기다. 박스 OCR/이동을 기다리면 바닥 돈을 놓친다.
+            w.key("F4", w.geometry())
+            n_f4 += 1
+            picked += 1
+            if n_f4 % 20 == 0:
+                log(f"F4 아덴 줍기 {n_f4}회")
+            time.sleep(0.35)
         except SystemExit:
             break
         except Exception as exc:
