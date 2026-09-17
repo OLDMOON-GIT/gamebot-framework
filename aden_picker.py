@@ -70,37 +70,37 @@ def main():
             if not w.active():
                 time.sleep(1.0)
                 continue
-            img = w.capture()
-            labels = read_label_names(img, detect_labels(img, PICK_RECT))
-            names = [l.name for l in labels if l.name]
-            lows = [n for n in names if tier_of(n) == "low"]
-            highs = [n for n in names if tier_of(n) == "high"]
-            junk_only = bool(names) and (not highs) and lows and len(lows) == len(names)
-            if junk_only:
-                time.sleep(0.45)
-                continue
-            char = find_character(img)
-            near_mob = False
-            if char:
-                cx, cy = char[:2]
-                near_mob = any(
-                    (x - cx) ** 2 + (y - cy) ** 2 <= NEAR_MOB_RADIUS ** 2
-                    for x, y, _a, _r in red_name_candidates(img)
-                )
-            near_high = two_tile_highs(char, labels)
-            if near_high and not near_mob:
-                _d2, x, y, name = near_high[0]
-                if _d2 > 90 ** 2:
-                    w.click(x, y, w.geometry())
-                    time.sleep(0.55)
-                    log(f"두칸 이동 줍기 {name}")
-            # 잡템만 있는 경우가 아니면 F4. OCR 잡음 때문에 아덴을 스킵하지 않는다.
             w.key("F4", w.geometry())
             n_f4 += 1
             picked += 1
             if n_f4 % 20 == 0:
                 log(f"F4 아덴 줍기 {n_f4}회")
-            time.sleep(0.35)
+            if n_f4 % 8 == 0:
+                img = w.capture()
+                labels = read_label_names(img, detect_labels(img, PICK_RECT))
+                names = [l.name for l in labels if l.name]
+                highs = [n for n in names if tier_of(n) == "high"]
+                lows = [n for n in names if tier_of(n) == "low"]
+                if names and lows and len(lows) == len(names) and not highs:
+                    log("잡템만 보임 — F4 잠시 쉼")
+                    time.sleep(1.0)
+                else:
+                    char = find_character(img)
+                    near_mob = False
+                    if char:
+                        cx, cy = char[:2]
+                        near_mob = any(
+                            (x - cx) ** 2 + (y - cy) ** 2 <= NEAR_MOB_RADIUS ** 2
+                            for x, y, _a, _r in red_name_candidates(img)
+                        )
+                    near_high = two_tile_highs(char, labels)
+                    if near_high and not near_mob:
+                        _d2, x, y, name = near_high[0]
+                        if _d2 > 90 ** 2:
+                            w.click(x, y, w.geometry())
+                            time.sleep(0.5)
+                            log(f"두칸 이동 줍기 {name}")
+            time.sleep(0.32)
         except SystemExit:
             break
         except Exception as exc:
