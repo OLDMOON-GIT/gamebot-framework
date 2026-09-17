@@ -27,10 +27,23 @@ from func_items import next_item
 RUNTIME = Path("/tmp/linc-bot-linux")
 STOP = RUNTIME / "stop"
 NOMOUSE = RUNTIME / "nomouse"   # 마우스 클릭 전면 금지(사용자 지시 2026-09-15)
-NEAR_RADIUS = 260            # 한 칸~두 칸: 캐릭터 중심 이 반경 몹만
-MELEE_RADIUS = 120           # 붙어 치는 선빵 거리
-HOLD_AFTER_CLICK = 6.0       # 클릭 후 자동공격이 돌 시간. 재클릭하면 칼질이 끊긴다.
+NEAR_RADIUS = 260
+MELEE_RADIUS = 150
+TILE_PX = 80
+HOLD_AFTER_CLICK = 6.0
 EXT_HP_URL = "http://127.0.0.1:17311/hp"
+
+
+def hunt_radius(settings=None):
+    """탐색 범위 칸 → px. HUD 10칸 기본."""
+    n = 10
+    if settings:
+        try:
+            n = int(settings.get("search_range") or 10)
+        except (TypeError, ValueError):
+            n = 10
+    n = max(1, min(18, n))
+    return max(MELEE_RADIUS, n * TILE_PX)
 
 
 def log(msg):
@@ -87,15 +100,16 @@ def hunt_character(img):
     return (left + width // 2, top + height // 2)
 
 
-def near_named_mobs(cur, char):
-    """정지 몹도 잡는다: 캐릭터 근접 빨간 이름표(몹 후보) 목록."""
+def near_named_mobs(cur, char, radius=None):
+    """정지 몹도 잡는다: 탐색 범위 안 빨간 이름표."""
     if char is None:
         return []
+    rad = NEAR_RADIUS if radius is None else radius
     cx, cy = char[:2]
     mobs = []
     for x, y, area, _rect in red_name_candidates(cur):
         d = np.hypot(x - cx, y - cy)
-        if d <= NEAR_RADIUS and in_play_rect(x, y + 30):
+        if d <= rad and in_play_rect(x, y + 30):
             # 이름표 아래 몸체를 노린다(실측: 이름 아래 약 30px)
             mobs.append((int(x), int(y + 30), area))
     return sorted(mobs, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
@@ -122,10 +136,11 @@ def pick_aggro_mob(mobs, char, last_xy=None, bars=None):
     return min(pool, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
 
 
-def near_mobs(prev, cur, char):
-    """캐릭터 주변 근접 이동체(몹) 목록 — PLAY_RECT 안 프레임 차분."""
+def near_mobs(prev, cur, char, radius=None):
+    """캐릭터 주변 이동체."""
     if char is None:
         return []
+    rad = NEAR_RADIUS if radius is None else radius
     cx, cy = char[:2]
     left, top, width, height = PLAY_RECT
     h, w = cur.shape[:2]
@@ -145,7 +160,7 @@ def near_mobs(prev, cur, char):
         x, y, bw, bh = cv2.boundingRect(c)
         mx, my = left + x + bw // 2, top + y + bh // 2
         # 캐릭터 본인 몸통(가까움)은 제외: 살짝 아래쪽 중심에서 벗어난 것만
-        if np.hypot(mx - cx, my - cy) <= NEAR_RADIUS and \
+        if np.hypot(mx - cx, my - cy) <= rad and \
                 np.hypot(mx - cx, my - cy) > 60:
             mobs.append((int(mx), int(my), int(area)))
     return sorted(mobs, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
@@ -407,8 +422,9 @@ def main():
                 prev = cur
                 continue
             char = hunt_character(cur)
-            named = near_named_mobs(cur, char)
-            moved = near_mobs(prev, cur, char)
+            rad = hunt_radius(settings)
+            named = near_named_mobs(cur, char, rad)
+            moved = near_mobs(prev, cur, char, rad)
             mobs = named or moved
             prev = cur
             now_swing = time.monotonic()

@@ -1,4 +1,9 @@
-from onestep_hunt import MELEE_RADIUS, pick_aggro_mob, should_hold_swing
+from onestep_hunt import MELEE_RADIUS, hunt_radius, pick_aggro_mob, should_hold_swing
+
+
+def test_탐색10칸은_화면범위():
+    assert hunt_radius({"search_range": 10}) == 800
+    assert hunt_radius({"search_range": 1}) == MELEE_RADIUS
 
 
 def test_붙어있는_선빵몹을_먼몹보다_먼저_고른다():
