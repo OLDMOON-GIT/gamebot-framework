@@ -1105,6 +1105,10 @@
     }
 
     window.__lincHudMountTimer = setInterval(mountHud, 2500);
+    if (window.__lincOldHudGuard) clearInterval(window.__lincOldHudGuard);
+    window.__lincOldHudGuard = setInterval(() => {
+      document.querySelectorAll('#linc-bot-hud').forEach(e => e.remove());
+    }, 400);
     window.__lincHudUiTimer = setInterval(poll, 50);
     poll();
     loadSet();
