@@ -9,6 +9,14 @@ def test_붙어있는_선빵몹을_먼몹보다_먼저_고른다():
     assert got == melee
 
 
+def test_선빵이_있으면_먼몹은_고르지_않는다():
+    char = (0, 0)
+    melee = (50, 0, 10)
+    far = (200, 0, 9999)
+    assert pick_aggro_mob([far, melee], char) == melee
+    assert pick_aggro_mob([far, melee], char, last_xy=far[:2]) == melee
+
+
 def test_이미_찍은_타겟을_유지한다():
     char = (100, 100)
     a = (140, 100, 100)

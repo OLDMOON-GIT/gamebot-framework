@@ -56,8 +56,13 @@ def in_play_rect(x, y):
     return left <= x < left + width and top <= y < top + height
 
 
-def should_hold_swing(frame, last_click_mono, now, last_xy=None, mobs=None):
-    """타겟이 살아 있으면 재클릭하지 않는다. 다른 몹을 찍으면 칼질이 끊긴다."""
+def should_hold_swing(frame, last_click_mono, now, last_xy=None, mobs=None, char=None):
+    """선빵이 붙어 있으면 다른 몹을 찍지 않는다."""
+    if char is not None and mobs:
+        cx, cy = char[:2]
+        melee = [m for m in mobs if np.hypot(m[0] - cx, m[1] - cy) <= MELEE_RADIUS]
+        if melee and last_click_mono is not None:
+            return True
     if last_xy is not None and mobs:
         lx, ly = last_xy
         if any(np.hypot(m[0] - lx, m[1] - ly) <= 110 for m in mobs):
@@ -97,25 +102,24 @@ def near_named_mobs(cur, char):
 
 
 def pick_aggro_mob(mobs, char, last_xy=None, bars=None):
-    """선빵 몹 우선: 1) 이미 찍은 타겟 2) 붙어 치는 거리 3) 노란 HP막대 4) 가장 가까움."""
+    """선빵만 고른다. 붙어 있는 몹이 있으면 먼 몹은 후보에서 뺀다."""
     if not mobs:
         return None
     cx, cy = char[:2]
+    melee = [m for m in mobs if np.hypot(m[0] - cx, m[1] - cy) <= MELEE_RADIUS]
+    pool = melee if melee else list(mobs)
     if last_xy is not None:
         lx, ly = last_xy
-        sticky = [m for m in mobs if np.hypot(m[0] - lx, m[1] - ly) <= 90]
+        sticky = [m for m in pool if np.hypot(m[0] - lx, m[1] - ly) <= 90]
         if sticky:
             return min(sticky, key=lambda m: np.hypot(m[0] - lx, m[1] - ly))
-    melee = [m for m in mobs if np.hypot(m[0] - cx, m[1] - cy) <= MELEE_RADIUS]
-    if melee:
-        return min(melee, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
     if bars:
         def bar_dist(m):
             return min(np.hypot(m[0] - bx, m[1] - by) for bx, by, _w in bars)
-        tagged = [m for m in mobs if bar_dist(m) <= 90]
+        tagged = [m for m in pool if bar_dist(m) <= 90]
         if tagged:
             return min(tagged, key=bar_dist)
-    return min(mobs, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
+    return min(pool, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
 
 
 def near_mobs(prev, cur, char):
@@ -408,7 +412,7 @@ def main():
             mobs = named or moved
             prev = cur
             now_swing = time.monotonic()
-            if should_hold_swing(cur, last_click_mono, now_swing, last_click_xy, mobs):
+            if should_hold_swing(cur, last_click_mono, now_swing, last_click_xy, mobs, char):
                 last_combat = now_swing
                 if now_swing - last_hold_log >= 5:
                     log("전투 유지 — 선빵 타겟 칼질")
