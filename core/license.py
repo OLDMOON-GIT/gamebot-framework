@@ -9,13 +9,13 @@ from pathlib import Path
 
 LICENSE_FILE = Path.home() / ".gamebot" / "license.json"
 PRICE_MONTHLY = 110000  # 월 11만원
-TRIAL_DAYS = 7           # 프리티켓 7일
+TRIAL_DAYS = 0           # 프리티켓 없음 — 유료만
 
 # 사용자(관리자)가 발급하는 티켓 — 실제 운영에서는 중앙 서버 검증으로 확장
 ISSUER_SECRET = "gamebot-2024-olmoon"
 
 
-def issue_ticket(days: int = TRIAL_DAYS, plan: str = "trial") -> dict:
+def issue_ticket(days: int = 30, plan: str = "monthly") -> dict:
     """프리티켓 발급 (사용자 전용 — 봇이 호출하지 않음)."""
     expires = time.time() + days * 86400
     payload = f"{plan}:{expires}:{ISSUER_SECRET}"
