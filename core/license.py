@@ -1,41 +1,83 @@
-"""GameBot 라이선스 관리 — 사용자가 프리티켓(무료 체험) 발급.
+"""GameBot 라이선스 — 유료(월 11만원) + 관리자 프리 키 (1PC/1계정 고정).
 
-월정액 11만원. 사용자가 직접 티켓을 생성/발급한다.
+프리 키는 사용자가 별도 발급. 해당 PC에서만 유효하고 1계정만 사용 가능.
 """
 import json
 import hashlib
+import subprocess
 import time
 from pathlib import Path
 
 LICENSE_FILE = Path.home() / ".gamebot" / "license.json"
-PRICE_MONTHLY = 110000  # 월 11만원
-TRIAL_DAYS = 0           # 프리티켓 없음 — 유료만
-
-# 사용자(관리자)가 발급하는 티켓 — 실제 운영에서는 중앙 서버 검증으로 확장
+PRICE_MONTHLY = 110000
 ISSUER_SECRET = "gamebot-2024-olmoon"
 
 
-def issue_ticket(days: int = 30, plan: str = "monthly") -> dict:
-    """프리티켓 발급 (사용자 전용 — 봇이 호출하지 않음)."""
+def _machine_id() -> str:
+    """이 PC를 식별하는 고유 ID (MAC + CPU)."""
+    try:
+        mac = subprocess.check_output(
+            ["cat", "/sys/class/net/eno1/address"],
+            timeout=3, text=True).strip()
+    except Exception:
+        mac = "unknown"
+    try:
+        cpu = subprocess.check_output(
+            ["grep", "-m1", "model name", "/proc/cpuinfo"],
+            timeout=3, text=True).split(":")[1].strip()
+    except Exception:
+        cpu = "unknown"
+    return hashlib.sha256(f"{mac}:{cpu}".encode()).hexdigest()[:16]
+
+
+def issue_monthly(days: int = 30) -> dict:
+    """월정액 티켓 (유료 ₩110,000)."""
     expires = time.time() + days * 86400
-    payload = f"{plan}:{expires}:{ISSUER_SECRET}"
-    key = hashlib.sha256(payload.encode()).hexdigest()[:32]
-    return {
-        "plan": plan,          # trial / monthly
+    return _sign({"plan": "monthly", "days": days, "price": PRICE_MONTHLY, "expires": expires})
+
+
+def issue_free(days: int = 30, account: str = "", machine: str = "") -> dict:
+    """프리 키 (관리자 발급 — 1PC/1계정 고정).
+
+    Args:
+        days: 유효 기간
+        account: 이 키를 쓸 계정명 (지정 안 하면 발급 시점 계정)
+        machine: 이 키를 쓸 PC의 machine_id (지정 안 하면 발급 시점 PC)
+    """
+    if not account:
+        account = _get_account()
+    if not machine:
+        machine = _machine_id()
+    expires = time.time() + days * 86400
+    return _sign({
+        "plan": "free",
         "days": days,
-        "price": PRICE_MONTHLY if plan == "monthly" else 0,
+        "price": 0,
+        "account": account,
+        "machine": machine,
         "expires": expires,
-        "key": key,
-        "issued": time.time(),
-    }
+    })
 
 
-def save_ticket(ticket: dict):
+def _sign(data: dict) -> dict:
+    payload = json.dumps(data, sort_keys=True) + ISSUER_SECRET
+    data["key"] = hashlib.sha256(payload.encode()).hexdigest()[:40]
+    data["issued"] = time.time()
+    return data
+
+
+def _get_account() -> str:
+    """현재 사용자 계정."""
+    import os
+    return os.environ.get("USER", os.environ.get("USERNAME", "unknown"))
+
+
+def save(ticket: dict):
     LICENSE_FILE.parent.mkdir(parents=True, exist_ok=True)
     LICENSE_FILE.write_text(json.dumps(ticket, ensure_ascii=False, indent=2))
 
 
-def load_ticket() -> dict | None:
+def load() -> dict | None:
     try:
         return json.loads(LICENSE_FILE.read_text())
     except (FileNotFoundError, ValueError):
@@ -43,55 +85,65 @@ def load_ticket() -> dict | None:
 
 
 def is_valid() -> bool:
-    """라이선스 유효 여부 — 만료/없으면 False."""
-    t = load_ticket()
+    t = load()
     if not t:
         return False
-    # 키 검증
-    payload = f'{t.get("plan")}:{t.get("expires")}:{ISSUER_SECRET}'
-    expected = hashlib.sha256(payload.encode()).hexdigest()[:32]
+    # 서명 검증
+    data = {k: v for k, v in t.items() if k not in ("key", "issued")}
+    payload = json.dumps(data, sort_keys=True) + ISSUER_SECRET
+    expected = hashlib.sha256(payload.encode()).hexdigest()[:40]
     if t.get("key") != expected:
         return False
-    return time.time() < t.get("expires", 0)
+    # 만료
+    if time.time() > t.get("expires", 0):
+        return False
+    # 프리 키: PC 고정 + 계정 고정
+    if t.get("plan") == "free":
+        if t.get("machine") != _machine_id():
+            return False  # 다른 PC에서는 사용 불가
+        if t.get("account") != _get_account():
+            return False  # 다른 계정에서는 사용 불가
+    return True
 
 
 def status() -> dict:
-    t = load_ticket() or {}
+    t = load() or {}
     remaining = max(0, t.get("expires", 0) - time.time())
     return {
         "valid": is_valid(),
         "plan": t.get("plan", "없음"),
         "remaining_days": round(remaining / 86400, 1),
-        "price": PRICE_MONTHLY,
+        "price": t.get("price", PRICE_MONTHLY),
+        "machine": _machine_id(),
+        "account": t.get("account", _get_account()),
+        "locked_pc": t.get("plan") == "free",
     }
-
-
-def activate(key: str) -> bool:
-    """사용자가 받은 키로 활성화."""
-    t = load_ticket()
-    if t and t.get("key") == key:
-        return is_valid()
-    return False
 
 
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(description="GameBot 라이선스")
-    ap.add_argument("cmd", choices=["issue", "status", "activate"])
-    ap.add_argument("--days", type=int, default=TRIAL_DAYS)
-    ap.add_argument("--plan", default="trial", choices=["trial", "monthly"])
-    ap.add_argument("--key")
+    ap.add_argument("cmd", choices=["issue-monthly", "issue-free", "status"])
+    ap.add_argument("--days", type=int, default=30)
+    ap.add_argument("--account")
     args = ap.parse_args()
 
-    if args.cmd == "issue":
-        t = issue_ticket(args.days, args.plan)
-        save_ticket(t)
-        print(f"✅ {args.plan} 티켓 발급 ({args.days}일, ₩{t['price']:,})")
+    if args.cmd == "issue-monthly":
+        t = issue_monthly(args.days)
+        save(t)
+        print(f"✅ 월정액 티켓 ({args.days}일, ₩{PRICE_MONTHLY:,})")
         print(f"   키: {t['key']}")
-        print(f"   파일: {LICENSE_FILE}")
+    elif args.cmd == "issue-free":
+        t = issue_free(args.days, args.account or "")
+        save(t)
+        print(f"✅ 프리 키 ({args.days}일, PC: {t['machine'][:8]}..., 계정: {t['account']})")
+        print(f"   ⚠️ 이 키는 발급한 PC({t['machine'][:8]}...)에서만 사용 가능")
+        print(f"   키: {t['key']}")
     elif args.cmd == "status":
         s = status()
-        print(f"라이선스: {'✅ 유효' if s['valid'] else '❌ 만료/없음'}")
-        print(f"플랜: {s['plan']} · 잔여 {s['remaining_days']}일 · ₩{s['price']:,}/월")
-    elif args.cmd == "activate" and args.key:
-        print("✅ 활성화됨" if activate(args.key) else "❌ 키 불일치")
+        print(f"라이선스: {'✅' if s['valid'] else '❌'}")
+        print(f"플랜: {s['plan']} · 잔여 {s['remaining_days']}일")
+        print(f"PC ID: {s['machine']}")
+        print(f"계정: {s['account']}")
+        if s['locked_pc']:
+            print(f"🔒 PC 고정 (다른 PC 사용 불가)")
