@@ -47,18 +47,34 @@ def main():
     picked = 0
     last_exp = None
     n_f4 = 0
-    log("아덴 줍기 시작(F4 연타)")
+    log("아덴 줍기 시작(잡템 제외 · F4)")
     while not STOP.exists():
         try:
             if not w.active():
                 time.sleep(1.0)
                 continue
-            # 아덴은 F4 범위 줍기다. 박스 OCR/이동을 기다리면 바닥 돈을 놓친다.
+            img = w.capture()
+            labels = read_label_names(img, detect_labels(img, PICK_RECT))
+            names = [l.name for l in labels if l.name]
+            lows = [n for n in names if tier_of(n) == "low"]
+            highs = [n for n in names if tier_of(n) == "high"]
+            # 몽둥이 같은 저급만 있으면 F4 하지 않는다.
+            if names and lows and len(lows) == len(names) and not highs:
+                time.sleep(0.5)
+                continue
+            exp_now = exp_count(img)
+            killed = last_exp is not None and exp_now > last_exp
+            last_exp = exp_now
+            # 아데나가 보이거나, 처치 직후(아덴 드랍), 또는 고급/미지 라벨.
+            want = bool(highs) or killed or (not names)
+            if not want:
+                time.sleep(0.4)
+                continue
             w.key("F4", w.geometry())
             n_f4 += 1
             picked += 1
             if n_f4 % 20 == 0:
-                log(f"F4 아덴 줍기 {n_f4}회")
+                log(f"F4 아덴 줍기 {n_f4}회 (잡템 스킵)")
             time.sleep(0.35)
         except SystemExit:
             break

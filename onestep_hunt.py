@@ -355,11 +355,6 @@ def main():
             kills += 1
             main.kills = kills
             log(f"근접 몹 공격 #{kills}: ({mx},{my}) 면적={area} HP={hp}")
-            if settings.get("pickup_enabled", True):
-                try:
-                    w.key("F4", w.geometry())
-                except Exception:
-                    pass
             time.sleep(4.0)  # 자동전투 진행 대기
             prev = None      # 전투 후 재기준
         except SystemExit:
