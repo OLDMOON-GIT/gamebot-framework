@@ -39,10 +39,7 @@ class TestPotionKeys(unittest.TestCase):
         return p
 
     def _armed(self, p, hp):
-        """2프레임째 호출을 시뮬레이트(확인 간격은 시간 의존이라 과거로)."""
-        first = p.check(self.w, hp)
-        assert first == SKIP, first  # 1프레임째: 기록만
-        p._low_since -= potion_keys.CONFIRM_GAP + 0.1
+        """80% 이하이면 바로 누른다(2프레임 대기는 80%에서 피를 더 깎는다)."""
         return p.check(self.w, hp)
 
     def _presses(self):
@@ -53,6 +50,11 @@ class TestPotionKeys(unittest.TestCase):
         self.assertEqual(p.check(self.w, 0.81), SKIP)
         self.w.key.assert_not_called()
 
+    def test_80퍼센트에서도_먹는다(self):
+        p = self._potion(lambda img: 0.95)
+        self.assertEqual(p.check(self.w, 0.80), USED)
+        self.assertGreaterEqual(self.w.key.call_count, 1)
+
     def test_임계_미만_2프레임이면_F6을_누른다(self):
         # 경계: 0.79 < 0.80 → 사용. 재판독 상승(0.95) → F6만 누른다.
         # F6 우선(2026-09-14 실측: F6=물약, F5=빈 슬롯).
@@ -61,14 +63,10 @@ class TestPotionKeys(unittest.TestCase):
         self.assertEqual(self._armed(p, 0.79), USED)
         self.assertEqual(self._presses(), ["F5"])
 
-    def test_한_프레임만의_저HP로는_누르지_않는다(self):
-        # OCR 오독 한 프레임(0.79)이 F5를 발사하면 안 된다.
-        p = self._potion()
-        self.assertEqual(p.check(self.w, 0.79), SKIP)
-        self.w.key.assert_not_called()
-        # 다음 프레임 회복(0.95)이면 여전히 누르지 않는다.
-        self.assertEqual(p.check(self.w, 0.95), SKIP)
-        self.w.key.assert_not_called()
+    def test_한_프레임_80퍼_이하면_바로_먹는다(self):
+        p = self._potion(lambda img: 0.95)
+        self.assertEqual(p.check(self.w, 0.79), USED)
+        self.assertGreaterEqual(self.w.key.call_count, 1)
 
     def test_F6_무반응이면_F5로_폴백한다(self):
         # 재판독이 계속 낮으면(반응 없음) F6→F5 순서로 누른다.
@@ -88,9 +86,6 @@ class TestPotionKeys(unittest.TestCase):
         p._probe_idx = 99
         self.assertEqual(self._armed(p, 0.79), USED)
         before = self.w.key.call_count
-        # 즉시 다시 저HP가 2프레임 연속 와도 COOLDOWN 내에는 안 누른다.
-        self.assertEqual(p.check(self.w, 0.75), SKIP)  # 1프레임 기록
-        p._low_since -= potion_keys.CONFIRM_GAP + 0.1
         self.assertEqual(p.check(self.w, 0.75), SKIP)  # 쿨다운 차단
         self.assertEqual(self.w.key.call_count, before)
 
@@ -138,8 +133,6 @@ class TestPotionKeys(unittest.TestCase):
         self.assertEqual(p._first_key, "F6")
 
         p._last_used -= COOLDOWN + 0.1
-        self.assertEqual(p.check(self.w, 0.70), SKIP)  # 1프레임 기록
-        p._low_since -= potion_keys.CONFIRM_GAP + 0.1
         reread2 = iter([0.95])
         with patch.object(potion_keys, "hp_read", lambda img: next(reread2)):
             self.assertEqual(p.check(self.w, 0.70), USED)

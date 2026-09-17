@@ -142,15 +142,13 @@ class PotionKeys:
             log("HP 판독 불가 — 물약 보류")
             self._low_since = None
             return UNKNOWN
-        if hp >= self.threshold:
+        # 80%에서도 먹는다. >= 0.80 스킵이면 HUD 80%에서 안 먹고 70%까지 빠진다.
+        if hp > self.threshold:
             self._low_since = None
             return SKIP
         now = time.monotonic()
-        if self._low_since is None:          # 1프레임째: 기록만
-            self._low_since = now
-            return SKIP
         cooldown = DANGER_COOLDOWN if hp < 0.45 else COOLDOWN
-        if now - self._low_since < CONFIRM_GAP or now - self._last_used < cooldown:
+        if now - self._last_used < cooldown:
             return SKIP
         self._low_since = None
         self._last_used = now
