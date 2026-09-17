@@ -39,6 +39,16 @@ def main():
     if args.mode in ("pick", "all"):
         scripts.append(("linc-aden", game["pick"]))
 
+    # 라이선스 체크
+    sys.path.insert(0, str(ROOT))
+    from core import license
+    s = license.status()
+    if not s["valid"]:
+        print(f"❌ 라이선스 만료 — 월 ₩{s['price']:,}")
+        print(f"   관리자에게 티켓을 받으세요. 잔여: {s['remaining_days']}일")
+        sys.exit(1)
+    print(f"✅ 라이선스 유효 ({s['plan']}, {s['remaining_days']}일)")
+
     for name, script in scripts:
         cmd = f'tmux new-session -d -s {name} "cd {ROOT} && python3 {script} >> /tmp/{name}.log 2>&1"'
         subprocess.run(cmd, shell=True)

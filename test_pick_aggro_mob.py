@@ -1,4 +1,19 @@
-from onestep_hunt import MELEE_RADIUS, hunt_radius, pick_aggro_mob, should_hold_swing
+from onestep_hunt import (
+    MELEE_RADIUS, hunt_radius, kill_rank, pick_aggro_mob, should_hold_swing,
+)
+
+
+def test_사던4_킬순서():
+    assert kill_rank("켈베로스") < kill_rank("킹버그") < kill_rank("버그")
+    assert kill_rank("웰베로스") == kill_rank("켈베로스")
+    char = (0, 0)
+    bug = (40, 0, 10, "버그")
+    king = (80, 0, 10, "킹버그")
+    cerb = (200, 0, 10, "켈베로스")
+    got = pick_aggro_mob([bug, king, cerb], char)
+    assert got[3] == "켈베로스"
+    got = pick_aggro_mob([bug, king], char)
+    assert got[3] == "킹버그"
 
 
 def test_탐색10칸은_화면범위():
@@ -19,7 +34,6 @@ def test_선빵이_있으면_먼몹은_고르지_않는다():
     melee = (50, 0, 10)
     far = (200, 0, 9999)
     assert pick_aggro_mob([far, melee], char) == melee
-    assert pick_aggro_mob([far, melee], char, last_xy=far[:2]) == melee
 
 
 def test_이미_찍은_타겟을_유지한다():

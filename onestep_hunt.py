@@ -6,6 +6,7 @@ BTS-1033250로 종전 퀵슬롯 좌표 클릭은 폐지).
 모든 터치 전 사용자 양보 게이트. 근접 몹 없으면 대기(배회 없음).
 """
 import json
+import re
 import time
 import urllib.request
 from pathlib import Path
@@ -15,7 +16,8 @@ import numpy as np
 
 from cdp_window import CdpWindow, EXT_PORT
 from linux_vision import (
-    PLAY_RECT, find_character, hp_read, mob_hp_bars, red_name_candidates,
+    PLAY_RECT, crop, find_character, hp_read, mob_hp_bars, ocr,
+    red_name_candidates,
 )
 from potion_keys import EXHAUSTED, USED, PotionKeys
 from user_gate import user_active
@@ -32,6 +34,42 @@ MELEE_RADIUS = 150
 TILE_PX = 80
 HOLD_AFTER_CLICK = 6.0
 EXT_HP_URL = "http://127.0.0.1:17311/hp"
+
+# 사막 던전 4층 킬 순서. 숫자 낮을수록 먼저.
+DESERT4_RANK = (
+    ("켈베", 0), ("웰베", 0), ("cerber", 0),
+    ("킹버", 1), ("kingbug", 1),
+    ("버그", 2), ("bug", 2),
+)
+_name_cache = {}
+
+
+def kill_rank(name):
+    if not name:
+        return 80
+    n = re.sub(r"\s+", "", str(name)).lower()
+    for key, rank in DESERT4_RANK:
+        if key in n:
+            return rank
+    return 80
+
+
+def read_mob_name(img, rect):
+    """이름표 OCR. 2초 캐시."""
+    x, y, w, h = rect
+    key = (x // 24, y // 24)
+    now = time.monotonic()
+    hit = _name_cache.get(key)
+    if hit and now - hit[1] < 2.0:
+        return hit[0]
+    try:
+        name = re.sub(r"\s+", "", ocr(crop(img, rect), lang="kor+eng") or "")
+    except Exception:
+        name = ""
+    _name_cache[key] = (name, now)
+    if len(_name_cache) > 80:
+        _name_cache.clear()
+    return name
 
 
 def hunt_radius(settings=None):
@@ -107,33 +145,28 @@ def near_named_mobs(cur, char, radius=None):
     rad = NEAR_RADIUS if radius is None else radius
     cx, cy = char[:2]
     mobs = []
-    for x, y, area, _rect in red_name_candidates(cur):
+    for x, y, area, rect in red_name_candidates(cur):
         d = np.hypot(x - cx, y - cy)
         if d <= rad and in_play_rect(x, y + 30):
-            # 이름표 아래 몸체를 노린다(실측: 이름 아래 약 30px)
-            mobs.append((int(x), int(y + 30), area))
-    return sorted(mobs, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
+            name = read_mob_name(cur, rect)
+            mobs.append((int(x), int(y + 30), area, name))
+    return sorted(mobs, key=lambda m: (kill_rank(m[3]), np.hypot(m[0] - cx, m[1] - cy)))
 
 
 def pick_aggro_mob(mobs, char, last_xy=None, bars=None):
-    """선빵만 고른다. 붙어 있는 몹이 있으면 먼 몹은 후보에서 뺀다."""
+    """사던4층: 켈베로스 > 킹버그 > 버그. 같은 종이면 가까운 것. 칼질 중 타겟은 유지."""
     if not mobs:
         return None
     cx, cy = char[:2]
-    melee = [m for m in mobs if np.hypot(m[0] - cx, m[1] - cy) <= MELEE_RADIUS]
-    pool = melee if melee else list(mobs)
     if last_xy is not None:
         lx, ly = last_xy
-        sticky = [m for m in pool if np.hypot(m[0] - lx, m[1] - ly) <= 90]
+        sticky = [m for m in mobs if np.hypot(m[0] - lx, m[1] - ly) <= 90]
         if sticky:
             return min(sticky, key=lambda m: np.hypot(m[0] - lx, m[1] - ly))
-    if bars:
-        def bar_dist(m):
-            return min(np.hypot(m[0] - bx, m[1] - by) for bx, by, _w in bars)
-        tagged = [m for m in pool if bar_dist(m) <= 90]
-        if tagged:
-            return min(tagged, key=bar_dist)
-    return min(pool, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
+    def sort_key(m):
+        nm = m[3] if len(m) > 3 else ""
+        return (kill_rank(nm), np.hypot(m[0] - cx, m[1] - cy))
+    return min(mobs, key=sort_key)
 
 
 def near_mobs(prev, cur, char, radius=None):
@@ -443,7 +476,8 @@ def main():
             if chosen is None:
                 time.sleep(0.35)
                 continue
-            mx, my, area = chosen
+            mx, my, area = chosen[:3]
+            name = chosen[3] if len(chosen) > 3 else ""
             if not in_play_rect(mx, my):
                 continue
             yield_click(w, mx, my)
@@ -453,7 +487,8 @@ def main():
             kills += 1
             main.kills = kills
             dist = int(np.hypot(mx - char[0], my - char[1]))
-            log(f"선빵 타격 #{kills}: ({mx},{my}) d={dist} HP={hp:.0%}")
+            tag = name or "?"
+            log(f"선빵 타격 #{kills} {tag}: ({mx},{my}) d={dist} HP={hp:.0%}")
             # 긴 sleep + prev=None 이면 칼질이 끊긴다. 짧게만 쉬고 프레임을 유지.
             time.sleep(0.55)
         except SystemExit:
