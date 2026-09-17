@@ -41,16 +41,11 @@ class UserBusy(Exception):
 
 
 def yield_click(w, x, y, max_wait=120):
-    """사용자 양보 후 클릭. 한도까지 기다려도 사용자가 손을 안 떼면 클릭하지
-    않고 UserBusy 를 던진다(종전엔 120초 뒤 강행 → '또 마우스' 재발 경로)."""
-    waited = 0
-    while user_active() and not STOP.exists():
-        if waited >= max_wait:
-            raise UserBusy(f"사용자 조작 {waited}s 지속 — 터치 생략")
-        time.sleep(2.0)
-        waited += 2
+    """조작 중이면 클릭만 생략. 120초 대기는 칼질을 멈춘다."""
     if STOP.exists():
         raise SystemExit
+    if user_active(observe=0.12, poll=0.04):
+        raise UserBusy("사용자 조작 중 — 클릭 생략")
     w.click(x, y, w.geometry())
 
 
@@ -96,7 +91,20 @@ def near_named_mobs(cur, char):
         if d <= NEAR_RADIUS and in_play_rect(x, y + 30):
             # 이름표 아래 몸체를 노린다(실측: 이름 아래 약 30px)
             mobs.append((int(x), int(y + 30), area))
-    return sorted(mobs, key=lambda m: -m[2])
+    return sorted(mobs, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
+
+
+def pick_aggro_mob(mobs, char, last_xy=None):
+    """주변 몹 중 선빵(붙어 있는)부터. 면적 큰 먼 몹을 찍으면 칼질이 끊긴다."""
+    if not mobs:
+        return None
+    cx, cy = char[:2]
+    if last_xy is not None:
+        lx, ly = last_xy
+        sticky = [m for m in mobs if np.hypot(m[0] - lx, m[1] - ly) <= 90]
+        if sticky:
+            return min(sticky, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
+    return min(mobs, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
 
 
 def near_mobs(prev, cur, char):
@@ -125,7 +133,7 @@ def near_mobs(prev, cur, char):
         if np.hypot(mx - cx, my - cy) <= NEAR_RADIUS and \
                 np.hypot(mx - cx, my - cy) > 60:
             mobs.append((int(mx), int(my), int(area)))
-    return sorted(mobs, key=lambda m: -m[2])
+    return sorted(mobs, key=lambda m: np.hypot(m[0] - cx, m[1] - cy))
 
 
 class ExtHpSource:
@@ -312,6 +320,7 @@ def main():
     potion = PotionKeys(read=read_hp_source)
     last_combat = time.monotonic()
     last_click_mono = None
+    last_click_xy = None
     last_hold_log = 0.0
     skill_last, skill_count = {}, {}
     func_last = {}
@@ -396,12 +405,17 @@ def main():
             if not mobs:
                 time.sleep(0.35)
                 continue
-            mx, my, area = mobs[0]
+            chosen = pick_aggro_mob(mobs, char, last_click_xy)
+            if chosen is None:
+                time.sleep(0.35)
+                continue
+            mx, my, area = chosen
             if not in_play_rect(mx, my):
                 continue
             yield_click(w, mx, my)
             last_combat = time.monotonic()
             last_click_mono = last_combat
+            last_click_xy = (mx, my)
             kills += 1
             main.kills = kills
             log(f"근접 몹 공격 #{kills}: ({mx},{my}) 면적={area} HP={hp}")
